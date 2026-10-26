@@ -23,6 +23,7 @@ class TrackState {
     var shiftMs by mutableFloatStateOf(0f)
     var adjMs by mutableFloatStateOf(0f)
     var mute by mutableStateOf(false)
+    var solo by mutableStateOf(false)
     var pan by mutableFloatStateOf(0f)
     var comp by mutableFloatStateOf(0f)
     var dMix by mutableFloatStateOf(0f)
@@ -59,6 +60,7 @@ class AppVm(app: Application) : AndroidViewModel(app) {
     var message by mutableStateOf("")
     var recIdx by mutableIntStateOf(-1)
     var level by mutableFloatStateOf(0f)
+    var armIdx by mutableIntStateOf(-1)
     var masterVol by mutableFloatStateOf(store.masterVol)
     var playing by mutableStateOf(false)
     var previewId by mutableStateOf<String?>(null)
@@ -123,13 +125,34 @@ class AppVm(app: Application) : AndroidViewModel(app) {
     }
 
     // ---------- 再生 ----------
-    private fun snaps(skip: Int): List<Snap> =
-        tracks.mapIndexed { k, t ->
+    private fun snaps(skip: Int): List<Snap> {
+        val anySolo = tracks.any { it.solo }
+        return tracks.mapIndexed { k, t ->
             Snap(
                 if (k == skip) null else t.pcm,
-                t.vol, t.shiftMs + t.adjMs, t.mute, t.pan, t.comp, t.dMix, t.dMs,
+                t.vol, t.shiftMs + t.adjMs, t.mute || (anySolo && !t.solo), t.pan, t.comp, t.dMix, t.dMs,
             )
         }
+    }
+
+    fun toggleArm(i: Int) {
+        if (recIdx >= 0) return
+        armIdx = if (armIdx == i) -1 else i
+    }
+
+    /** 下の録音ボタン：準備したトラックで録音を始める（録音中なら止める） */
+    fun recordButton(requestMic: (() -> Unit) -> Unit) {
+        if (recIdx >= 0) {
+            stopRec()
+            return
+        }
+        val i = armIdx
+        if (i < 0) {
+            say("録音するトラックの ● を押して、録音の準備をしてください。")
+            return
+        }
+        requestMic { startRec(i) }
+    }
 
     private fun startPlayback(list: List<PlayTrack>) {
         val end = Mixer.endFrame(list)
@@ -354,6 +377,7 @@ class AppVm(app: Application) : AndroidViewModel(app) {
         if (recIdx >= 0) return
         stopAll()
         for (t in tracks) {
+            t.solo = false
             t.pcm = null
             t.vol = 0.9f
             t.shiftMs = 0f

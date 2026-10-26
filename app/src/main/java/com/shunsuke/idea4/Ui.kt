@@ -416,7 +416,7 @@ fun IdeaApp(vm: AppVm, requestMic: (() -> Unit) -> Unit, signIn: () -> Unit) {
                         )
                     }
                 }
-                if (vm.tab == 0) TransportBar(vm)
+                if (vm.tab == 0) TransportBar(vm, requestMic)
                 NavigationBar(containerColor = NavBg) {
                     for (i in 0 until 4) {
                         NavigationBarItem(
@@ -488,22 +488,28 @@ fun RecordScreen(vm: AppVm, requestMic: (() -> Unit) -> Unit) {
 }
 
 @Composable
-private fun TransportBar(vm: AppVm) {
+private fun TransportBar(vm: AppVm, requestMic: (() -> Unit) -> Unit) {
     Column(
         Modifier.fillMaxWidth().background(NavBg).padding(horizontal = 12.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            val rec = vm.recIdx >= 0
             PillButton(
-                "再生", { vm.play() }, Modifier.weight(1.3f),
+                if (rec) "録音中" else "録音", { vm.recordButton(requestMic) }, Modifier.weight(1.25f),
+                dot = true, color = Red, borderColor = Red,
+                bg = if (rec) Red.copy(alpha = 0.22f) else Color.Transparent, height = 44.dp,
+            )
+            PillButton(
+                "再生", { vm.play() }, Modifier.weight(1.2f),
                 icon = Icons.Filled.PlayArrow, filled = true, height = 44.dp,
             )
             PillButton(
-                "停止", { if (vm.recIdx >= 0) vm.stopRec() else vm.stopAll() }, Modifier.weight(1.1f),
+                "停止", { if (vm.recIdx >= 0) vm.stopRec() else vm.stopAll() }, Modifier.weight(1.0f),
                 icon = Icons.Filled.Stop, height = 44.dp,
             )
             Box(
-                Modifier.weight(0.9f).height(44.dp).clip(RoundedCornerShape(10.dp)).background(CardBg),
+                Modifier.weight(1.0f).height(44.dp).clip(RoundedCornerShape(10.dp)).background(CardBg),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(fmt(vm.timeSec), color = Fg, fontSize = 18.sp)
@@ -560,22 +566,31 @@ private fun TrackCard(vm: AppVm, i: Int, requestMic: (() -> Unit) -> Unit) {
         Text("トラック " + (i + 1), color = Fg, fontSize = 14.sp, fontWeight = FontWeight.Medium)
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Waveform(t.pcm, if (recording) Red else Wave, Modifier.weight(1f).height(36.dp))
+            val armed = vm.armIdx == i
+            Box(
+                Modifier
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .border(1.dp, if (armed || recording) Red else Outline, CircleShape)
+                    .background(if (armed || recording) Red.copy(alpha = 0.18f) else Color.Transparent)
+                    .clickable { vm.toggleArm(i) },
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(Modifier.size(14.dp).clip(CircleShape).background(if (armed || recording) Red else Sub))
+            }
             PillButton(
-                "録音", { if (recording) vm.stopRec() else requestMic { vm.startRec(i) } },
-                Modifier.width(78.dp),
-                dot = true,
-                color = if (recording) Red else Fg,
-                borderColor = if (recording) Red else Outline,
-                bg = if (recording) Red.copy(alpha = 0.18f) else Color.Transparent,
-                height = 36.dp, fontSize = 13.sp,
-            )
-            PillButton(
-                if (t.mute) "ミュート中" else "ミュート", { t.mute = !t.mute },
-                Modifier.width(88.dp),
-                color = if (t.mute) Red else Fg,
+                "M", { t.mute = !t.mute }, Modifier.width(40.dp),
+                filled = false, color = if (t.mute) Red else Fg,
                 borderColor = if (t.mute) Red else Outline,
                 bg = if (t.mute) Red.copy(alpha = 0.18f) else Color.Transparent,
-                height = 36.dp, fontSize = 13.sp,
+                height = 38.dp, fontSize = 15.sp,
+            )
+            PillButton(
+                "S", { t.solo = !t.solo }, Modifier.width(40.dp),
+                color = if (t.solo) Accent else Fg,
+                borderColor = if (t.solo) Accent else Outline,
+                bg = if (t.solo) Accent.copy(alpha = 0.18f) else Color.Transparent,
+                height = 38.dp, fontSize = 15.sp,
             )
         }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
