@@ -177,7 +177,7 @@ class DriveClient(private val token: String, private val progress: (String) -> U
             playList.add(
                 makePlay(
                     pcm, tm.vol.toFloat(), (tm.shift + tm.adj).toFloat(), tm.mute,
-                    tm.pan.toFloat(), tm.comp.toFloat(), tm.dMix.toFloat(), tm.dMs.toFloat(),
+                    tm.pan.toFloat(), tm.comp.toFloat(), tm.dMix.toFloat(), tm.dMs.toFloat(), tm.rMix.toFloat(),
                 ),
             )
         }

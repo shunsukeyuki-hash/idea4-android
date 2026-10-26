@@ -28,6 +28,7 @@ class TrackState {
     var comp by mutableFloatStateOf(0f)
     var dMix by mutableFloatStateOf(0f)
     var dMs by mutableFloatStateOf(250f)
+    var rMix by mutableFloatStateOf(0f)
 }
 
 /** 再生の準備に使う、トラック設定の写し。エフェクトの計算は別スレッドで行う。 */
@@ -40,8 +41,9 @@ private class Snap(
     val comp: Float,
     val dMix: Float,
     val dMs: Float,
+    val rMix: Float,
 ) {
-    fun build(): PlayTrack = makePlay(pcm, vol, shiftMs, mute, pan, comp, dMix, dMs)
+    fun build(): PlayTrack = makePlay(pcm, vol, shiftMs, mute, pan, comp, dMix, dMs, rMix)
 }
 
 class AppVm(app: Application) : AndroidViewModel(app) {
@@ -130,7 +132,7 @@ class AppVm(app: Application) : AndroidViewModel(app) {
         return tracks.mapIndexed { k, t ->
             Snap(
                 if (k == skip) null else t.pcm,
-                t.vol, t.shiftMs + t.adjMs, t.mute || (anySolo && !t.solo), t.pan, t.comp, t.dMix, t.dMs,
+                t.vol, t.shiftMs + t.adjMs, t.mute || (anySolo && !t.solo), t.pan, t.comp, t.dMix, t.dMs, t.rMix,
             )
         }
     }
@@ -350,7 +352,7 @@ class AppVm(app: Application) : AndroidViewModel(app) {
             if (t.pcm != null) {
                 TrackMeta(
                     true, SR, t.shiftMs.toDouble(), t.adjMs.toDouble(), t.vol.toDouble(), t.mute,
-                    t.pan.toDouble(), t.comp.toDouble(), t.dMix.toDouble(), t.dMs.toDouble(),
+                    t.pan.toDouble(), t.comp.toDouble(), t.dMix.toDouble(), t.dMs.toDouble(), t.rMix.toDouble(),
                 )
             } else {
                 TrackMeta(false)
@@ -387,6 +389,7 @@ class AppVm(app: Application) : AndroidViewModel(app) {
             t.comp = 0f
             t.dMix = 0f
             t.dMs = 250f
+            t.rMix = 0f
         }
         current = null
         memo = ""
@@ -420,6 +423,7 @@ class AppVm(app: Application) : AndroidViewModel(app) {
                     t.comp = (tm?.comp ?: 0.0).toFloat()
                     t.dMix = (tm?.dMix ?: 0.0).toFloat()
                     t.dMs = (tm?.dMs ?: 250.0).toFloat()
+                    t.rMix = (tm?.rMix ?: 0.0).toFloat()
                 }
                 current = m
                 memo = m.memo
@@ -468,6 +472,7 @@ class AppVm(app: Application) : AndroidViewModel(app) {
                     (tm?.comp ?: 0.0).toFloat(),
                     (tm?.dMix ?: 0.0).toFloat(),
                     (tm?.dMs ?: 250.0).toFloat(),
+                    (tm?.rMix ?: 0.0).toFloat(),
                 )
             }
             main.post {

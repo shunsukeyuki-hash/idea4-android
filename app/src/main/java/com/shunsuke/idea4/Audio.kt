@@ -76,6 +76,49 @@ fun applyDelay(src: ShortArray, mix: Float, ms: Float): ShortArray {
     return out
 }
 
+/** ホールリバーブ：長めの残響を持つ、8本のコム＋4本のオールパスの構成。 */
+fun applyReverb(src: ShortArray, mix: Float): ShortArray {
+    val tail = SR * 3
+    val out = ShortArray(src.size + tail)
+    val scale = SR / 44100f * 2.0f
+    val combLen = intArrayOf(1116, 1188, 1277, 1356, 1422, 1491, 1557, 1617)
+    val apLen = intArrayOf(556, 441, 341, 225)
+    val nc = combLen.size
+    val na = apLen.size
+    val cb = Array(nc) { FloatArray(maxOf(8, (combLen[it] * scale).toInt())) }
+    val ci = IntArray(nc)
+    val cf = FloatArray(nc)
+    val ab = Array(na) { FloatArray(maxOf(8, (apLen[it] * SR / 44100f).toInt())) }
+    val ai = IntArray(na)
+    val fb = 0.90f
+    val damp = 0.25f
+    for (i in out.indices) {
+        val x = if (i < src.size) src[i] / 32768f else 0f
+        val inp = x * 0.015f
+        var sum = 0f
+        for (c in 0 until nc) {
+            val buf = cb[c]
+            val y = buf[ci[c]]
+            cf[c] = y * (1f - damp) + cf[c] * damp
+            buf[ci[c]] = inp + cf[c] * fb
+            ci[c]++
+            if (ci[c] == buf.size) ci[c] = 0
+            sum += y
+        }
+        for (a in 0 until na) {
+            val buf = ab[a]
+            val bo = buf[ai[a]]
+            val o = -sum + bo
+            buf[ai[a]] = sum + bo * 0.5f
+            ai[a]++
+            if (ai[a] == buf.size) ai[a] = 0
+            sum = o
+        }
+        out[i] = clip16((x + mix * sum * 3f) * 32768f)
+    }
+    return out
+}
+
 /** 重い処理を含むので、メインスレッドでは呼ばないこと。 */
 fun makePlay(
     pcm: ShortArray?,
@@ -86,11 +129,13 @@ fun makePlay(
     comp: Float,
     dMix: Float,
     dMs: Float,
+    rMix: Float = 0f,
 ): PlayTrack {
     var p = pcm
     if (p != null && !mute) {
         if (comp > 0.01f) p = applyComp(p, comp)
         if (dMix > 0.01f) p = applyDelay(p, dMix, dMs)
+        if (rMix > 0.01f) p = applyReverb(p, rMix)
     }
     return PlayTrack(p, vol, (shiftMs * SR / 1000f).toInt(), mute, pan)
 }

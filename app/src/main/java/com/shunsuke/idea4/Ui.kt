@@ -558,7 +558,7 @@ private fun TrackCard(vm: AppVm, i: Int, requestMic: (() -> Unit) -> Unit) {
     var open by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
     val panText = if (t.pan < -0.04f) "左 " + (-t.pan * 100).toInt() else if (t.pan > 0.04f) "右 " + (t.pan * 100).toInt() else "中央"
-    val fxOn = t.comp > 0.01f || t.dMix > 0.01f
+    val fxOn = t.comp > 0.01f || t.dMix > 0.01f || t.rMix > 0.01f
     val shape = RoundedCornerShape(14.dp)
     Column(
         Modifier
@@ -643,6 +643,11 @@ private fun TrackCard(vm: AppVm, i: Int, requestMic: (() -> Unit) -> Unit) {
             LabeledSlider("ディレイの間隔", t.dMs.toInt().toString() + " ms", t.dMs, 50f, 800f) {
                 t.dMs = (it / 10f).roundToInt() * 10f
             }
+            LabeledSlider(
+                "リバーブ（ホール）",
+                if (t.rMix > 0.01f) (t.rMix * 100).toInt().toString() + "%" else "オフ",
+                t.rMix, 0f, 1f,
+            ) { t.rMix = (it * 20f).roundToInt() / 20f }
             LabeledSlider("ズレ補正（＋で音を早める）", t.adjMs.toInt().toString() + " ms", t.adjMs, -500f, 500f, fromCenter = true) {
                 t.adjMs = (it / 5f).roundToInt() * 5f
             }
