@@ -485,6 +485,7 @@ fun RecordScreen(vm: AppVm, requestMic: (() -> Unit) -> Unit) {
                 Text(fmt(vm.timeSec), color = Fg, fontSize = 18.sp)
             }
         }
+        LevelMeter(vm.level, vm.recIdx >= 0)
         for (i in 0 until N_TRACKS) TrackCard(vm, i, requestMic)
         SaveSection(vm, onNew = {
             if (vm.tracks.any { it.pcm != null }) confirmNew = true else vm.newIdea()
@@ -499,6 +500,27 @@ fun RecordScreen(vm: AppVm, requestMic: (() -> Unit) -> Unit) {
             },
             onNo = { confirmNew = false },
         )
+    }
+}
+
+@Composable
+private fun LevelMeter(level: Float, active: Boolean) {
+    val shown = if (active) Math.sqrt(level.toDouble()).toFloat().coerceIn(0f, 1f) else 0f
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("入力", color = Sub, fontSize = 12.sp)
+        Canvas(Modifier.weight(1f).height(10.dp)) {
+            val h = size.height
+            val w = size.width
+            drawRoundRect(Line, size = size, cornerRadius = androidx.compose.ui.geometry.CornerRadius(h / 2f, h / 2f))
+            if (shown > 0.01f) {
+                drawRoundRect(
+                    if (shown > 0.92f) Red else Accent,
+                    size = androidx.compose.ui.geometry.Size(w * shown, h),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(h / 2f, h / 2f),
+                )
+            }
+        }
+        Text(if (active && shown > 0.92f) "大きすぎ" else if (active) "録音中" else "待機", color = if (active && shown > 0.92f) Red else Sub, fontSize = 12.sp)
     }
 }
 
@@ -568,9 +590,6 @@ private fun TrackCard(vm: AppVm, i: Int, requestMic: (() -> Unit) -> Unit) {
             if (fxOn) Text("オン", color = Accent, fontSize = 12.sp)
         }
         if (open) {
-            LabeledSlider("ズレ補正（＋で音を早める）", t.adjMs.toInt().toString() + " ms", t.adjMs, -500f, 500f, fromCenter = true) {
-                t.adjMs = (it / 5f).roundToInt() * 5f
-            }
             LabeledSlider(
                 "コンプレッサー",
                 if (t.comp > 0.01f) (t.comp * 100).toInt().toString() + "%" else "オフ",
@@ -583,6 +602,9 @@ private fun TrackCard(vm: AppVm, i: Int, requestMic: (() -> Unit) -> Unit) {
             ) { t.dMix = (it * 20f).roundToInt() / 20f }
             LabeledSlider("ディレイの間隔", t.dMs.toInt().toString() + " ms", t.dMs, 50f, 800f) {
                 t.dMs = (it / 10f).roundToInt() * 10f
+            }
+            LabeledSlider("ズレ補正（＋で音を早める）", t.adjMs.toInt().toString() + " ms", t.adjMs, -500f, 500f, fromCenter = true) {
+                t.adjMs = (it / 5f).roundToInt() * 5f
             }
             Text(
                 "エフェクトは再生とミックスにかかります。録音した元の音は変わりません。",

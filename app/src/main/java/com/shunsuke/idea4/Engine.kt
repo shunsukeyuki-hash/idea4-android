@@ -7,6 +7,7 @@ import android.media.AudioDeviceInfo
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioRecord
+import kotlin.math.abs
 import android.media.AudioTrack
 import android.media.MediaRecorder
 import android.os.Handler
@@ -37,6 +38,9 @@ class Engine(ctx: Context) {
         outputs().firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
 
     @SuppressLint("MissingPermission")
+    @Volatile
+    var onLevel: ((Float) -> Unit)? = null
+
     fun start(
         tracks: List<PlayTrack>,
         record: Boolean,
@@ -121,6 +125,14 @@ class Engine(ctx: Context) {
                             g += got
                         }
                         System.arraycopy(inb, 0, store, pos, g)
+                        var pk = 0
+                        for (q in 0 until g) {
+                            val a = abs(inb[q].toInt())
+                            if (a > pk) pk = a
+                        }
+                        val lv = pk / 32768f
+                        val cb = onLevel
+                        if (cb != null) main.post { cb(lv) }
                     }
                     pos += n
                     if ((pos / chunk) % 5 == 0) {

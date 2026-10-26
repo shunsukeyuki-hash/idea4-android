@@ -58,6 +58,7 @@ class AppVm(app: Application) : AndroidViewModel(app) {
     var tab by mutableIntStateOf(0)
     var message by mutableStateOf("")
     var recIdx by mutableIntStateOf(-1)
+    var level by mutableFloatStateOf(0f)
     var playing by mutableStateOf(false)
     var previewId by mutableStateOf<String?>(null)
     var timeSec by mutableDoubleStateOf(0.0)
@@ -197,6 +198,8 @@ class AppVm(app: Application) : AndroidViewModel(app) {
         recIdx = i
         playing = true
         timeSec = 0.0
+        level = 0f
+        engine.onLevel = { v -> if (recIdx >= 0) level = maxOf(v, level * 0.85f) }
         say("録音中（最大3分）。他のトラックを聴きながら録れます。")
         io {
             val list = snap.map { it.build() }
@@ -212,6 +215,7 @@ class AppVm(app: Application) : AndroidViewModel(app) {
                             val idx = recIdx
                             recIdx = -1
                             playing = false
+                            level = 0f
                             if (err != null) {
                                 say(err)
                             } else if (pcm != null && pcm.size > SR / 5 && idx >= 0) {
@@ -241,6 +245,7 @@ class AppVm(app: Application) : AndroidViewModel(app) {
             token++
             recIdx = -1
             playing = false
+            level = 0f
         }
     }
 
