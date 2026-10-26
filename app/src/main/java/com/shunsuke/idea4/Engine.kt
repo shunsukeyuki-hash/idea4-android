@@ -39,6 +39,9 @@ class Engine(ctx: Context) {
 
     @SuppressLint("MissingPermission")
     @Volatile
+    var master: Float = 1f
+
+    @Volatile
     var onLevel: ((Float) -> Unit)? = null
 
     fun start(
@@ -113,6 +116,7 @@ class Engine(ctx: Context) {
                 rec?.startRecording()
                 tr.play()
                 while (!s.stop && pos < total) {
+                    tr.setVolume(master)
                     val n = minOf(chunk, total - pos)
                     Mixer.mix(tracks, pos, buf, n)
                     tr.write(buf, 0, n * 2)

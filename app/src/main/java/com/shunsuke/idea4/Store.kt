@@ -54,6 +54,12 @@ class Store(ctx: Context) {
             prefs.edit().putFloat("extra", v).apply()
         }
 
+    var masterVol: Float
+        get() = prefs.getFloat("master", 1f)
+        set(v) {
+            prefs.edit().putFloat("master", v).apply()
+        }
+
     var latencyMs: Float
         get() = prefs.getFloat("latency", 0f)
         set(v) {

@@ -59,6 +59,7 @@ class AppVm(app: Application) : AndroidViewModel(app) {
     var message by mutableStateOf("")
     var recIdx by mutableIntStateOf(-1)
     var level by mutableFloatStateOf(0f)
+    var masterVol by mutableFloatStateOf(store.masterVol)
     var playing by mutableStateOf(false)
     var previewId by mutableStateOf<String?>(null)
     var timeSec by mutableDoubleStateOf(0.0)
@@ -79,6 +80,7 @@ class AppVm(app: Application) : AndroidViewModel(app) {
     private var token = 0
 
     init {
+        engine.master = masterVol
         refresh()
         refreshDevices()
     }
@@ -483,6 +485,13 @@ class AppVm(app: Application) : AndroidViewModel(app) {
     fun chooseInput(id: Int) {
         inDevId = id
         store.inDevId = id
+    }
+
+    fun setMaster(v: Float) {
+        val x = v.coerceIn(0f, 1f)
+        masterVol = x
+        engine.master = x
+        store.masterVol = x
     }
 
     fun chooseOutput(id: Int) {

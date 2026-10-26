@@ -509,6 +509,11 @@ private fun TransportBar(vm: AppVm) {
                 Text(fmt(vm.timeSec), color = Fg, fontSize = 18.sp)
             }
         }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("マスター", color = Sub, fontSize = 12.sp)
+            ThinSlider(vm.masterVol, { vm.setMaster(it) }, 0f, 1f, Modifier.weight(1f))
+            Text((vm.masterVol * 100).toInt().toString() + "%", color = Sub, fontSize = 12.sp, modifier = Modifier.width(40.dp), textAlign = TextAlign.End)
+        }
         LevelMeter(vm.level, vm.recIdx >= 0)
     }
 }
