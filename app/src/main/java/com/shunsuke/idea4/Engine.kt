@@ -55,7 +55,7 @@ class Engine(ctx: Context) {
             try {
                 val chunk = 960
                 val minOut = AudioTrack.getMinBufferSize(
-                    SR, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT,
+                    SR, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT,
                 )
                 val tr = AudioTrack.Builder()
                     .setAudioAttributes(
@@ -68,10 +68,10 @@ class Engine(ctx: Context) {
                         AudioFormat.Builder()
                             .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                             .setSampleRate(SR)
-                            .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                            .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
                             .build(),
                     )
-                    .setBufferSizeInBytes(maxOf(minOut, chunk * 2 * 3))
+                    .setBufferSizeInBytes(maxOf(minOut, chunk * 4 * 3))
                     .setTransferMode(AudioTrack.MODE_STREAM)
                     .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
                     .build()
@@ -101,7 +101,7 @@ class Engine(ctx: Context) {
                 }
 
                 val total = if (record) maxFrames else minOf(maxFrames, Mixer.endFrame(tracks))
-                val buf = ShortArray(chunk)
+                val buf = ShortArray(chunk * 2)
                 val inb = ShortArray(chunk)
                 val store = if (record) ShortArray(total) else null
                 var pos = 0
@@ -111,7 +111,7 @@ class Engine(ctx: Context) {
                 while (!s.stop && pos < total) {
                     val n = minOf(chunk, total - pos)
                     Mixer.mix(tracks, pos, buf, n)
-                    tr.write(buf, 0, n)
+                    tr.write(buf, 0, n * 2)
                     val r2 = rec
                     if (r2 != null && store != null) {
                         var g = 0

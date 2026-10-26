@@ -184,6 +184,7 @@ fun TrackCard(vm: AppVm, i: Int, requestMic: (() -> Unit) -> Unit) {
     val t = vm.tracks[i]
     val recording = vm.recIdx == i
     var confirmClear by remember { mutableStateOf(false) }
+    var fxOpen by remember { mutableStateOf(false) }
     Card(
         Modifier.fillMaxWidth(),
         border = if (recording) BorderStroke(1.dp, MaterialTheme.colorScheme.error) else null,
@@ -205,6 +206,42 @@ fun TrackCard(vm: AppVm, i: Int, requestMic: (() -> Unit) -> Unit) {
                 onValueChange = { t.adjMs = (it / 5f).roundToInt() * 5f },
                 valueRange = -500f..500f,
             )
+            val panText = if (t.pan < -0.04f) "左 " + (-t.pan * 100).toInt() else if (t.pan > 0.04f) "右 " + (t.pan * 100).toInt() else "中央"
+            Text("パン " + panText, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Slider(
+                value = t.pan,
+                onValueChange = { t.pan = if (abs(it) < 0.06f) 0f else (it * 20f).roundToInt() / 20f },
+                valueRange = -1f..1f,
+            )
+            TextButton(onClick = { fxOpen = !fxOpen }) {
+                val on = t.comp > 0.01f || t.dMix > 0.01f
+                Text("エフェクト " + (if (fxOpen) "▲" else "▼") + (if (on) "（オン）" else ""), fontSize = 13.sp)
+            }
+            if (fxOpen) {
+                Text(
+                    "コンプレッサー " + (if (t.comp > 0.01f) (t.comp * 100).toInt().toString() + "%" else "オフ"),
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Slider(value = t.comp, onValueChange = { t.comp = (it * 20f).roundToInt() / 20f }, valueRange = 0f..1f)
+                Text(
+                    "ディレイの量 " + (if (t.dMix > 0.01f) (t.dMix * 100).toInt().toString() + "%" else "オフ"),
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Slider(value = t.dMix, onValueChange = { t.dMix = (it * 20f).roundToInt() / 20f }, valueRange = 0f..1f)
+                Text(
+                    "ディレイの間隔 " + t.dMs.toInt() + " ms",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Slider(value = t.dMs, onValueChange = { t.dMs = (it / 10f).roundToInt() * 10f }, valueRange = 50f..800f)
+                Text(
+                    "エフェクトは再生とミックスにかかります。録音した元の音は変わりません。",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
                     onClick = { if (recording) vm.stopRec() else requestMic { vm.startRec(i) } },

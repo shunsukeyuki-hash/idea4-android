@@ -23,6 +23,24 @@ class TrackState {
     var shiftMs by mutableFloatStateOf(0f)
     var adjMs by mutableFloatStateOf(0f)
     var mute by mutableStateOf(false)
+    var pan by mutableFloatStateOf(0f)
+    var comp by mutableFloatStateOf(0f)
+    var dMix by mutableFloatStateOf(0f)
+    var dMs by mutableFloatStateOf(250f)
+}
+
+/** 再生の準備に使う、トラック設定の写し。エフェクトの計算は別スレッドで行う。 */
+private class Snap(
+    val pcm: ShortArray?,
+    val vol: Float,
+    val shiftMs: Float,
+    val mute: Boolean,
+    val pan: Float,
+    val comp: Float,
+    val dMix: Float,
+    val dMs: Float,
+) {
+    fun build(): PlayTrack = makePlay(pcm, vol, shiftMs, mute, pan, comp, dMix, dMs)
 }
 
 class AppVm(app: Application) : AndroidViewModel(app) {
@@ -56,6 +74,9 @@ class AppVm(app: Application) : AndroidViewModel(app) {
 
     private var session: Session? = null
 
+    // 再生や録音を始める操作のたびに増やし、古い準備が遅れて届いたときに捨てるための番号
+    private var token = 0
+
     init {
         refresh()
         refreshDevices()
@@ -85,18 +106,26 @@ class AppVm(app: Application) : AndroidViewModel(app) {
         thread {
             try {
                 block()
-            } catch (e: Exception) {
-                main.post { say("エラー：" + (e.message ?: "原因不明")) }
+            } catch (e: Throwable) {
+                main.post {
+                    say("エラー：" + (e.message ?: "原因不明"))
+                    if (session == null) {
+                        recIdx = -1
+                        playing = false
+                        previewId = null
+                    }
+                }
             }
         }
     }
 
     // ---------- 再生 ----------
-    private fun framesOf(shift: Float, adj: Float): Int = ((shift + adj) * SR / 1000f).toInt()
-
-    private fun playTracks(skip: Int): List<PlayTrack> =
+    private fun snaps(skip: Int): List<Snap> =
         tracks.mapIndexed { k, t ->
-            PlayTrack(if (k == skip) null else t.pcm, t.vol, framesOf(t.shiftMs, t.adjMs), t.mute)
+            Snap(
+                if (k == skip) null else t.pcm,
+                t.vol, t.shiftMs + t.adjMs, t.mute, t.pan, t.comp, t.dMix, t.dMs,
+            )
         }
 
     private fun startPlayback(list: List<PlayTrack>) {
@@ -128,10 +157,23 @@ class AppVm(app: Application) : AndroidViewModel(app) {
     fun play() {
         if (recIdx >= 0) return
         stopAll()
-        startPlayback(playTracks(-1))
+        val my = token
+        val snap = snaps(-1)
+        if (snap.none { it.pcm != null && !it.mute }) {
+            say("再生するトラックがありません。")
+            return
+        }
+        say("")
+        io {
+            val list = snap.map { it.build() }
+            main.post {
+                if (token == my) startPlayback(list)
+            }
+        }
     }
 
     fun stopAll() {
+        token++
         val s = session
         if (s != null) s.stop = true
         session = null
@@ -147,42 +189,59 @@ class AppVm(app: Application) : AndroidViewModel(app) {
             return
         }
         stopAll()
-        val list = playTracks(i)
+        val my = token
+        val snap = snaps(i)
         val shift = latencyMs + extraMs
+        val inD = inDev()
+        val outD = outDev()
         recIdx = i
         playing = true
         timeSec = 0.0
         say("録音中（最大3分）。他のトラックを聴きながら録れます。")
-        var me: Session? = null
-        me = engine.start(
-            list, true, MAX_SEC * SR, inDev(), outDev(),
-            { t -> if (session === me) timeSec = t },
-            { pcm, err ->
-                if (session === me) {
-                    session = null
-                    val idx = recIdx
-                    recIdx = -1
-                    playing = false
-                    if (err != null) {
-                        say(err)
-                    } else if (pcm != null && pcm.size > SR / 5 && idx >= 0) {
-                        val t = tracks[idx]
-                        t.pcm = pcm
-                        t.shiftMs = shift
-                        t.adjMs = 0f
-                        say("トラック" + (idx + 1) + "を録音しました。保存するのを忘れずに。")
-                    } else {
-                        say("録音が短すぎたので、保存しませんでした。")
-                    }
-                }
-            },
-        )
-        session = me
+        io {
+            val list = snap.map { it.build() }
+            main.post {
+                if (token != my) return@post
+                var me: Session? = null
+                me = engine.start(
+                    list, true, MAX_SEC * SR, inD, outD,
+                    { t -> if (session === me) timeSec = t },
+                    { pcm, err ->
+                        if (session === me) {
+                            session = null
+                            val idx = recIdx
+                            recIdx = -1
+                            playing = false
+                            if (err != null) {
+                                say(err)
+                            } else if (pcm != null && pcm.size > SR / 5 && idx >= 0) {
+                                val t = tracks[idx]
+                                t.pcm = pcm
+                                t.shiftMs = shift
+                                t.adjMs = 0f
+                                say("トラック" + (idx + 1) + "を録音しました。保存するのを忘れずに。")
+                            } else {
+                                say("録音が短すぎたので、保存しませんでした。")
+                            }
+                        }
+                    },
+                )
+                session = me
+            }
+        }
     }
 
     fun stopRec() {
+        if (recIdx < 0) return
         val s = session
-        if (recIdx >= 0 && s != null) s.stop = true
+        if (s != null) {
+            s.stop = true
+        } else {
+            // まだ準備中だった場合は、そのまま取りやめる
+            token++
+            recIdx = -1
+            playing = false
+        }
     }
 
     // ---------- 遅延の測定 ----------
@@ -259,7 +318,10 @@ class AppVm(app: Application) : AndroidViewModel(app) {
         val id = base?.id ?: ("i" + now)
         val metas = tracks.map { t ->
             if (t.pcm != null) {
-                TrackMeta(true, SR, t.shiftMs.toDouble(), t.adjMs.toDouble(), t.vol.toDouble(), t.mute)
+                TrackMeta(
+                    true, SR, t.shiftMs.toDouble(), t.adjMs.toDouble(), t.vol.toDouble(), t.mute,
+                    t.pan.toDouble(), t.comp.toDouble(), t.dMix.toDouble(), t.dMs.toDouble(),
+                )
             } else {
                 TrackMeta(false)
             }
@@ -290,6 +352,10 @@ class AppVm(app: Application) : AndroidViewModel(app) {
             t.shiftMs = 0f
             t.adjMs = 0f
             t.mute = false
+            t.pan = 0f
+            t.comp = 0f
+            t.dMix = 0f
+            t.dMs = 250f
         }
         current = null
         memo = ""
@@ -319,6 +385,10 @@ class AppVm(app: Application) : AndroidViewModel(app) {
                     t.shiftMs = (tm?.shift ?: 0.0).toFloat()
                     t.adjMs = (tm?.adj ?: 0.0).toFloat()
                     t.mute = tm?.mute ?: false
+                    t.pan = (tm?.pan ?: 0.0).toFloat()
+                    t.comp = (tm?.comp ?: 0.0).toFloat()
+                    t.dMix = (tm?.dMix ?: 0.0).toFloat()
+                    t.dMs = (tm?.dMs ?: 250.0).toFloat()
                 }
                 current = m
                 memo = m.memo
@@ -353,19 +423,24 @@ class AppVm(app: Application) : AndroidViewModel(app) {
         val m = ideas.firstOrNull { it.id == id } ?: return
         stopAll()
         previewId = id
+        val my = token
         io {
             val list = (0 until N_TRACKS).map { k ->
                 val tm = m.tracks.getOrNull(k)
                 val has = tm != null && tm.has
-                PlayTrack(
+                makePlay(
                     if (has) store.loadPcm(id, k) else null,
                     (tm?.vol ?: 0.9).toFloat(),
-                    framesOf((tm?.shift ?: 0.0).toFloat(), (tm?.adj ?: 0.0).toFloat()),
+                    ((tm?.shift ?: 0.0) + (tm?.adj ?: 0.0)).toFloat(),
                     tm?.mute ?: false,
+                    (tm?.pan ?: 0.0).toFloat(),
+                    (tm?.comp ?: 0.0).toFloat(),
+                    (tm?.dMix ?: 0.0).toFloat(),
+                    (tm?.dMs ?: 250.0).toFloat(),
                 )
             }
             main.post {
-                if (previewId == id) startPlayback(list)
+                if (token == my && previewId == id) startPlayback(list)
             }
         }
     }
