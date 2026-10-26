@@ -107,6 +107,12 @@ private val Red = Color(0xFFF85858)
 private val ChipBg = Color(0xFF1D2C26)
 private val ChipLine = Color(0xFF2F4A3B)
 private val Wave = Color(0xFF8793A1)
+private val TrackBgs = listOf(
+    Color(0xFF1B2D44), // 青
+    Color(0xFF272D34), // グレー
+    Color(0xFF1F3A52), // 明るめの青
+    Color(0xFF333A42), // 明るめのグレー
+)
 
 private val DarkScheme = darkColorScheme(
     primary = Accent,
@@ -558,7 +564,7 @@ private fun TrackCard(vm: AppVm, i: Int, requestMic: (() -> Unit) -> Unit) {
         Modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(CardBg)
+            .background(TrackBgs[i % TrackBgs.size])
             .then(if (recording) Modifier.border(1.dp, Red, shape) else Modifier)
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -596,7 +602,7 @@ private fun TrackCard(vm: AppVm, i: Int, requestMic: (() -> Unit) -> Unit) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("音量", color = Sub, fontSize = 12.sp, modifier = Modifier.width(28.dp))
             ThinSlider(t.vol, { t.vol = it }, 0f, 1f, Modifier.weight(1f))
-            Box(Modifier.width(44.dp))
+            Text((t.vol * 100).roundToInt().toString() + "%", color = Sub, fontSize = 12.sp, modifier = Modifier.width(44.dp), textAlign = TextAlign.End)
         }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("パン", color = Sub, fontSize = 12.sp, modifier = Modifier.width(28.dp))
@@ -621,7 +627,7 @@ private fun TrackCard(vm: AppVm, i: Int, requestMic: (() -> Unit) -> Unit) {
         }
         if (open) {
           Column(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(Color(0xFF26323A)).padding(10.dp),
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(Color.White.copy(alpha = 0.08f)).padding(10.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
           ) {
             LabeledSlider(
