@@ -416,6 +416,7 @@ fun IdeaApp(vm: AppVm, requestMic: (() -> Unit) -> Unit, signIn: () -> Unit) {
                         )
                     }
                 }
+                if (vm.tab == 0) TransportBar(vm)
                 NavigationBar(containerColor = NavBg) {
                     for (i in 0 until 4) {
                         NavigationBarItem(
@@ -469,6 +470,29 @@ fun RecordScreen(vm: AppVm, requestMic: (() -> Unit) -> Unit) {
             val st = vm.streak()
             if (st > 0) Text("連続 " + st + " 日", color = Sub, fontSize = 13.sp)
         }
+        for (i in 0 until N_TRACKS) TrackCard(vm, i, requestMic)
+        SaveSection(vm, onNew = {
+            if (vm.tracks.any { it.pcm != null }) confirmNew = true else vm.newIdea()
+        })
+    }
+    if (confirmNew) {
+        ConfirmDialog(
+            "新しいアイデアを始めますか？", "保存していない録音は消えます。", "始める", "やめる",
+            onYes = {
+                confirmNew = false
+                vm.newIdea()
+            },
+            onNo = { confirmNew = false },
+        )
+    }
+}
+
+@Composable
+private fun TransportBar(vm: AppVm) {
+    Column(
+        Modifier.fillMaxWidth().background(NavBg).padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             PillButton(
                 "再生", { vm.play() }, Modifier.weight(1.3f),
@@ -486,20 +510,6 @@ fun RecordScreen(vm: AppVm, requestMic: (() -> Unit) -> Unit) {
             }
         }
         LevelMeter(vm.level, vm.recIdx >= 0)
-        for (i in 0 until N_TRACKS) TrackCard(vm, i, requestMic)
-        SaveSection(vm, onNew = {
-            if (vm.tracks.any { it.pcm != null }) confirmNew = true else vm.newIdea()
-        })
-    }
-    if (confirmNew) {
-        ConfirmDialog(
-            "新しいアイデアを始めますか？", "保存していない録音は消えます。", "始める", "やめる",
-            onYes = {
-                confirmNew = false
-                vm.newIdea()
-            },
-            onNo = { confirmNew = false },
-        )
     }
 }
 
@@ -590,6 +600,10 @@ private fun TrackCard(vm: AppVm, i: Int, requestMic: (() -> Unit) -> Unit) {
             if (fxOn) Text("オン", color = Accent, fontSize = 12.sp)
         }
         if (open) {
+          Column(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(Color(0xFF26323A)).padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+          ) {
             LabeledSlider(
                 "コンプレッサー",
                 if (t.comp > 0.01f) (t.comp * 100).toInt().toString() + "%" else "オフ",
@@ -616,6 +630,7 @@ private fun TrackCard(vm: AppVm, i: Int, requestMic: (() -> Unit) -> Unit) {
                 height = 36.dp, fontSize = 13.sp,
                 enabled = t.pcm != null && !recording,
             )
+          }
         }
     }
     if (confirmClear) {
