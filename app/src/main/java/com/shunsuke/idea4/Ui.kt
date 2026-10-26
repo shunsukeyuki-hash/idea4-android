@@ -180,6 +180,7 @@ private fun ThinSlider(
     min: Float,
     max: Float,
     modifier: Modifier = Modifier,
+    fromCenter: Boolean = false,
 ) {
     val cur = rememberUpdatedState(onChange)
     Canvas(
@@ -218,10 +219,17 @@ private fun ThinSlider(
             Line, Offset(pad, cy), Offset(pad + w, cy),
             strokeWidth = 4.dp.toPx(), cap = StrokeCap.Round,
         )
+        val startX = if (fromCenter) pad + w / 2f else pad
         drawLine(
-            Accent, Offset(pad, cy), Offset(pad + w * frac, cy),
+            Accent, Offset(startX, cy), Offset(pad + w * frac, cy),
             strokeWidth = 4.dp.toPx(), cap = StrokeCap.Round,
         )
+        if (fromCenter) {
+            drawLine(
+                Sub, Offset(pad + w / 2f, cy - 7.dp.toPx()), Offset(pad + w / 2f, cy + 7.dp.toPx()),
+                strokeWidth = 1.5.dp.toPx(),
+            )
+        }
         drawCircle(Accent, radius = 6.dp.toPx(), center = Offset(pad + w * frac, cy))
     }
 }
@@ -233,6 +241,7 @@ private fun LabeledSlider(
     value: Float,
     min: Float,
     max: Float,
+    fromCenter: Boolean = false,
     onChange: (Float) -> Unit,
 ) {
     Column {
@@ -240,7 +249,7 @@ private fun LabeledSlider(
             Text(label, color = Sub, fontSize = 12.sp)
             Text(valueText, color = Fg, fontSize = 12.sp)
         }
-        ThinSlider(value, onChange, min, max, Modifier.fillMaxWidth())
+        ThinSlider(value, onChange, min, max, Modifier.fillMaxWidth(), fromCenter)
     }
 }
 
@@ -533,9 +542,18 @@ private fun TrackCard(vm: AppVm, i: Int, requestMic: (() -> Unit) -> Unit) {
             )
         }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("音量", color = Sub, fontSize = 12.sp)
+            Text("音量", color = Sub, fontSize = 12.sp, modifier = Modifier.width(28.dp))
             ThinSlider(t.vol, { t.vol = it }, 0f, 1f, Modifier.weight(1f))
-            Text("パン " + panText, color = Sub, fontSize = 12.sp, modifier = Modifier.clickable { open = true })
+            Box(Modifier.width(44.dp))
+        }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("パン", color = Sub, fontSize = 12.sp, modifier = Modifier.width(28.dp))
+            ThinSlider(
+                t.pan,
+                { t.pan = if (abs(it) < 0.06f) 0f else (it * 20f).roundToInt() / 20f },
+                -1f, 1f, Modifier.weight(1f), fromCenter = true,
+            )
+            Text(panText, color = Sub, fontSize = 12.sp, modifier = Modifier.width(44.dp), textAlign = TextAlign.End)
         }
         Row(
             Modifier.clickable { open = !open }.padding(vertical = 2.dp),
@@ -550,10 +568,7 @@ private fun TrackCard(vm: AppVm, i: Int, requestMic: (() -> Unit) -> Unit) {
             if (fxOn) Text("オン", color = Accent, fontSize = 12.sp)
         }
         if (open) {
-            LabeledSlider("パン", panText, t.pan, -1f, 1f) {
-                t.pan = if (abs(it) < 0.06f) 0f else (it * 20f).roundToInt() / 20f
-            }
-            LabeledSlider("ズレ補正（＋で音を早める）", t.adjMs.toInt().toString() + " ms", t.adjMs, -500f, 500f) {
+            LabeledSlider("ズレ補正（＋で音を早める）", t.adjMs.toInt().toString() + " ms", t.adjMs, -500f, 500f, fromCenter = true) {
                 t.adjMs = (it / 5f).roundToInt() * 5f
             }
             LabeledSlider(
