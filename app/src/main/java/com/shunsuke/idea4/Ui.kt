@@ -76,6 +76,8 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.layout
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -157,8 +159,9 @@ private fun PillButton(
     height: Dp = 40.dp,
     fontSize: TextUnit = 14.sp,
     enabled: Boolean = true,
+    corner: Dp = 10.dp,
 ) {
-    val shape = RoundedCornerShape(10.dp)
+    val shape = RoundedCornerShape(corner)
     val content = if (filled) OnAccent else color
     Box(
         modifier
@@ -405,6 +408,18 @@ private fun ConfirmDialog(
 fun IdeaApp(vm: AppVm, requestMic: (() -> Unit) -> Unit, signIn: () -> Unit) {
     val names = listOf("録音", "カレンダー", "一覧", "設定")
     val icons = listOf(Icons.Filled.Mic, Icons.Filled.CalendarMonth, Icons.Filled.ListIcon, Icons.Filled.Settings)
+    var confirmNew by remember { mutableStateOf(false) }
+    val onNew: () -> Unit = {
+        if (vm.recIdx >= 0) {
+            vm.say("録音を止めてから、新しいアイデアを始めてください。")
+        } else if (vm.tracks.any { it.pcm != null }) {
+            confirmNew = true
+        } else {
+            vm.newIdea()
+            vm.tab = 0
+        }
+        Unit
+    }
     Scaffold(
         containerColor = Bg,
         bottomBar = {
@@ -424,6 +439,17 @@ fun IdeaApp(vm: AppVm, requestMic: (() -> Unit) -> Unit, signIn: () -> Unit) {
                 }
                 if (vm.tab == 0) TransportBar(vm, requestMic)
                 NavigationBar(containerColor = NavBg) {
+                    NavigationBarItem(
+                        selected = false,
+                        onClick = onNew,
+                        icon = { Icon(Icons.Filled.Add, contentDescription = "新しいアイデア") },
+                        label = { Text("新規", fontSize = 11.sp) },
+                        colors = NavigationBarItemDefaults.colors(
+                            unselectedIconColor = Accent,
+                            unselectedTextColor = Accent,
+                            indicatorColor = Color.Transparent,
+                        ),
+                    )
                     for (i in 0 until 4) {
                         NavigationBarItem(
                             selected = vm.tab == i,
@@ -452,13 +478,23 @@ fun IdeaApp(vm: AppVm, requestMic: (() -> Unit) -> Unit, signIn: () -> Unit) {
             }
         }
     }
+    if (confirmNew) {
+        ConfirmDialog(
+            "新しいアイデアを始めますか？", "保存していない録音は消えます。", "始める", "やめる",
+            onYes = {
+                confirmNew = false
+                vm.newIdea()
+                vm.tab = 0
+            },
+            onNo = { confirmNew = false },
+        )
+    }
 }
 
 // ---------------- 録音画面 ----------------
 
 @Composable
 fun RecordScreen(vm: AppVm, requestMic: (() -> Unit) -> Unit) {
-    var confirmNew by remember { mutableStateOf(false) }
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -476,20 +512,14 @@ fun RecordScreen(vm: AppVm, requestMic: (() -> Unit) -> Unit) {
             val st = vm.streak()
             if (st > 0) Text("連続 " + st + " 日", color = Sub, fontSize = 13.sp)
         }
-        for (i in 0 until N_TRACKS) TrackCard(vm, i, requestMic)
-        SaveSection(vm, onNew = {
-            if (vm.tracks.any { it.pcm != null }) confirmNew = true else vm.newIdea()
-        })
-    }
-    if (confirmNew) {
-        ConfirmDialog(
-            "新しいアイデアを始めますか？", "保存していない録音は消えます。", "始める", "やめる",
-            onYes = {
-                confirmNew = false
-                vm.newIdea()
-            },
-            onNo = { confirmNew = false },
-        )
+        for (i in 0 until vm.shown) TrackCard(vm, i, requestMic)
+        if (vm.shown < N_TRACKS) {
+            PillButton(
+                "トラックを追加", { vm.addTrack() }, Modifier.fillMaxWidth(),
+                icon = Icons.Filled.Add, height = 44.dp, enabled = vm.recIdx < 0,
+            )
+        }
+        SaveSection(vm)
     }
 }
 
@@ -557,6 +587,8 @@ private fun TrackCard(vm: AppVm, i: Int, requestMic: (() -> Unit) -> Unit) {
     val recording = vm.recIdx == i
     var open by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
+    var editName by remember { mutableStateOf(false) }
+    var nameDraft by remember { mutableStateOf("") }
     val panText = if (t.pan < -0.04f) "左 " + (-t.pan * 100).toInt() else if (t.pan > 0.04f) "右 " + (t.pan * 100).toInt() else "中央"
     val fxOn = t.comp > 0.01f || t.dMix > 0.01f || t.rMix > 0.01f
     val shape = RoundedCornerShape(14.dp)
@@ -569,7 +601,22 @@ private fun TrackCard(vm: AppVm, i: Int, requestMic: (() -> Unit) -> Unit) {
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text("トラック " + (i + 1), color = Fg, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+        Row(
+            Modifier.clickable {
+                nameDraft = t.name
+                editName = true
+            },
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                if (t.name.isBlank()) "トラック " + (i + 1) else t.name,
+                color = Fg, fontSize = 14.sp, fontWeight = FontWeight.Medium,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            Icon(Icons.Outlined.Edit, contentDescription = "名前を変える", tint = Sub, modifier = Modifier.size(15.dp))
+        }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Waveform(t.pcm, if (recording) Red else Wave, Modifier.weight(1f).height(36.dp))
             val armed = vm.armIdx == i
@@ -664,6 +711,22 @@ private fun TrackCard(vm: AppVm, i: Int, requestMic: (() -> Unit) -> Unit) {
           }
         }
     }
+    if (editName) {
+        AlertDialog(
+            onDismissRequest = { editName = false },
+            containerColor = CardBg,
+            titleContentColor = Fg,
+            title = { Text("トラックの名前", fontSize = 17.sp) },
+            text = { AppField(nameDraft, { nameDraft = it.take(16) }, "例：ギター、鼻歌（空にすると元の名前）", Modifier.fillMaxWidth()) },
+            confirmButton = {
+                TextButton(onClick = {
+                    t.name = nameDraft.trim()
+                    editName = false
+                }) { Text("決定", color = Accent) }
+            },
+            dismissButton = { TextButton(onClick = { editName = false }) { Text("やめる", color = Sub) } },
+        )
+    }
     if (confirmClear) {
         ConfirmDialog(
             "トラック" + (i + 1) + "を消去しますか？", null, "消去", "やめる",
@@ -679,7 +742,7 @@ private fun TrackCard(vm: AppVm, i: Int, requestMic: (() -> Unit) -> Unit) {
 }
 
 @Composable
-private fun SaveSection(vm: AppVm, onNew: () -> Unit) {
+private fun SaveSection(vm: AppVm) {
     var addTag by remember { mutableStateOf(false) }
     var newTag by remember { mutableStateOf("") }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -695,10 +758,18 @@ private fun SaveSection(vm: AppVm, onNew: () -> Unit) {
             }
             TagChip("＋ タグ", false) { addTag = true }
         }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            PillButton("保存", { vm.save() }, Modifier.weight(1f), filled = true, height = 44.dp)
-            PillButton("新しいアイデア", onNew, Modifier.weight(1f), height = 44.dp)
-        }
+        PillButton(
+            "保存", { vm.save() },
+            Modifier
+                .fillMaxWidth()
+                .layout { m, c ->
+                    val px = 12.dp.roundToPx()
+                    val w = c.maxWidth + 2 * px
+                    val p = m.measure(c.copy(minWidth = w, maxWidth = w))
+                    layout(c.maxWidth, p.height) { p.place(-px, 0) }
+                },
+            filled = true, height = 60.dp, fontSize = 18.sp, corner = 0.dp,
+        )
     }
     if (addTag) {
         AlertDialog(

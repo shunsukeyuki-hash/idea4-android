@@ -29,6 +29,7 @@ class TrackState {
     var dMix by mutableFloatStateOf(0f)
     var dMs by mutableFloatStateOf(250f)
     var rMix by mutableFloatStateOf(0f)
+    var name by mutableStateOf("")
 }
 
 /** 再生の準備に使う、トラック設定の写し。エフェクトの計算は別スレッドで行う。 */
@@ -63,6 +64,7 @@ class AppVm(app: Application) : AndroidViewModel(app) {
     var recIdx by mutableIntStateOf(-1)
     var level by mutableFloatStateOf(0f)
     var armIdx by mutableIntStateOf(-1)
+    var shown by mutableIntStateOf(1)
     var masterVol by mutableFloatStateOf(store.masterVol)
     var playing by mutableStateOf(false)
     var previewId by mutableStateOf<String?>(null)
@@ -135,6 +137,10 @@ class AppVm(app: Application) : AndroidViewModel(app) {
                 t.vol, t.shiftMs + t.adjMs, t.mute || (anySolo && !t.solo), t.pan, t.comp, t.dMix, t.dMs, t.rMix,
             )
         }
+    }
+
+    fun addTrack() {
+        if (shown < N_TRACKS) shown++
     }
 
     fun toggleArm(i: Int) {
@@ -352,10 +358,10 @@ class AppVm(app: Application) : AndroidViewModel(app) {
             if (t.pcm != null) {
                 TrackMeta(
                     true, SR, t.shiftMs.toDouble(), t.adjMs.toDouble(), t.vol.toDouble(), t.mute,
-                    t.pan.toDouble(), t.comp.toDouble(), t.dMix.toDouble(), t.dMs.toDouble(), t.rMix.toDouble(),
+                    t.pan.toDouble(), t.comp.toDouble(), t.dMix.toDouble(), t.dMs.toDouble(), t.rMix.toDouble(), t.name,
                 )
             } else {
-                TrackMeta(false)
+                TrackMeta(false, name = t.name)
             }
         }
         val idea = Idea(
@@ -390,8 +396,11 @@ class AppVm(app: Application) : AndroidViewModel(app) {
             t.dMix = 0f
             t.dMs = 250f
             t.rMix = 0f
+            t.name = ""
         }
         current = null
+        shown = 1
+        armIdx = -1
         memo = ""
         selTags.clear()
         say("新しいアイデアを始めます。")
@@ -424,7 +433,15 @@ class AppVm(app: Application) : AndroidViewModel(app) {
                     t.dMix = (tm?.dMix ?: 0.0).toFloat()
                     t.dMs = (tm?.dMs ?: 250.0).toFloat()
                     t.rMix = (tm?.rMix ?: 0.0).toFloat()
+                    t.name = tm?.name ?: ""
                 }
+                var last = 0
+                for (k in 0 until N_TRACKS) {
+                    val tm = m.tracks.getOrNull(k)
+                    if (tm != null && (tm.has || tm.name.isNotBlank())) last = k
+                }
+                shown = last + 1
+                armIdx = -1
                 current = m
                 memo = m.memo
                 selTags.clear()

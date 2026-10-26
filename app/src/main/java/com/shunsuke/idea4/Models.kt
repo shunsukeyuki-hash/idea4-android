@@ -9,7 +9,7 @@ import java.util.Date
 import java.util.Locale
 
 const val SR = 48000
-const val N_TRACKS = 4
+const val N_TRACKS = 8
 const val MAX_SEC = 180
 
 data class TrackMeta(
@@ -24,6 +24,7 @@ data class TrackMeta(
     val dMix: Double = 0.0,
     val dMs: Double = 250.0,
     val rMix: Double = 0.0,
+    val name: String = "",
 )
 
 data class DriveInfo(val ids: Map<String, String>, val at: Long)
@@ -48,10 +49,10 @@ fun whenStr(ts: Long): String =
 fun TrackMeta.toJson(): JSONObject =
     JSONObject().put("has", has).put("sr", sr).put("shift", shift)
         .put("adj", adj).put("vol", vol).put("mute", mute)
-        .put("pan", pan).put("comp", comp).put("dMix", dMix).put("dMs", dMs).put("rMix", rMix)
+        .put("pan", pan).put("comp", comp).put("dMix", dMix).put("dMs", dMs).put("rMix", rMix).put("name", name)
 
 fun trackFromJson(o: JSONObject?): TrackMeta {
-    if (o == null || !o.optBoolean("has", false)) return TrackMeta(false)
+    if (o == null || !o.optBoolean("has", false)) return TrackMeta(false, name = o?.optString("name", "") ?: "")
     return TrackMeta(
         true,
         o.optInt("sr", SR),
@@ -64,6 +65,7 @@ fun trackFromJson(o: JSONObject?): TrackMeta {
         o.optDouble("dMix", 0.0),
         o.optDouble("dMs", 250.0),
         o.optDouble("rMix", 0.0),
+        o.optString("name", ""),
     )
 }
 
