@@ -9,7 +9,7 @@
         android:allowBackup="true"
         android:largeHeap="true"
         android:icon="@mipmap/ic_launcher"
-        android:label="アイデア4トラック"
+        android:label="音の記憶"
         android:supportsRtl="true"
         android:theme="@style/Theme.Idea4">
         <activity
