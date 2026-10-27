@@ -139,6 +139,35 @@ class AppVm(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // ---------- 再生中のリアルタイム操作 ----------
+    private var liveList: List<PlayTrack>? = null
+
+    /** 画面の操作に合わせて、再生中のトラックの設定を書き換える。 */
+    fun syncLive() {
+        val l = liveList ?: return
+        val anySolo = tracks.any { it.solo }
+        for (k in l.indices) {
+            val t = tracks.getOrNull(k) ?: continue
+            val p = l[k]
+            p.vol = t.vol
+            p.pan = t.pan
+            p.mute = t.mute || (anySolo && !t.solo)
+            p.comp = t.comp
+            p.dMix = t.dMix
+            p.dMs = t.dMs
+            p.rMix = t.rMix
+        }
+    }
+
+    /** どれかの値が変わったことを知るための一覧。 */
+    fun liveSignature(): List<Float> =
+        tracks.flatMap {
+            listOf(
+                it.vol, it.pan, if (it.mute) 1f else 0f, if (it.solo) 1f else 0f,
+                it.comp, it.dMix, it.dMs, it.rMix,
+            )
+        }
+
     fun addTrack() {
         if (shown < N_TRACKS) shown++
     }
@@ -162,7 +191,7 @@ class AppVm(app: Application) : AndroidViewModel(app) {
         requestMic { startRec(i) }
     }
 
-    private fun startPlayback(list: List<PlayTrack>) {
+    private fun startPlayback(list: List<PlayTrack>, live: Boolean = true) {
         val end = Mixer.endFrame(list)
         if (end <= 0) {
             previewId = null
@@ -171,12 +200,15 @@ class AppVm(app: Application) : AndroidViewModel(app) {
         }
         playing = true
         timeSec = 0.0
+        liveList = if (live) list else null
+        syncLive()
         var me: Session? = null
         me = engine.start(
             list, false, end, null, outDev(),
             { t -> if (session === me) timeSec = t },
             { _, err ->
                 if (session === me) {
+                    liveList = null
                     session = null
                     playing = false
                     previewId = null
@@ -211,6 +243,7 @@ class AppVm(app: Application) : AndroidViewModel(app) {
         val s = session
         if (s != null) s.stop = true
         session = null
+        liveList = null
         playing = false
         previewId = null
         timeSec = 0.0
@@ -239,11 +272,14 @@ class AppVm(app: Application) : AndroidViewModel(app) {
             main.post {
                 if (token != my) return@post
                 var me: Session? = null
+                liveList = list
+                syncLive()
                 me = engine.start(
                     list, true, MAX_SEC * SR, inD, outD,
                     { t -> if (session === me) timeSec = t },
                     { pcm, err ->
                         if (session === me) {
+                            liveList = null
                             session = null
                             val idx = recIdx
                             recIdx = -1
@@ -493,7 +529,7 @@ class AppVm(app: Application) : AndroidViewModel(app) {
                 )
             }
             main.post {
-                if (token == my && previewId == id) startPlayback(list)
+                if (token == my && previewId == id) startPlayback(list, false)
             }
         }
     }

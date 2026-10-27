@@ -64,6 +64,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -409,6 +410,9 @@ fun IdeaApp(vm: AppVm, requestMic: (() -> Unit) -> Unit, signIn: () -> Unit) {
     val names = listOf("録音", "カレンダー", "一覧", "設定")
     val icons = listOf(Icons.Filled.Mic, Icons.Filled.CalendarMonth, Icons.Filled.ListIcon, Icons.Filled.Settings)
     var confirmNew by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        snapshotFlow { vm.liveSignature() }.collect { vm.syncLive() }
+    }
     val onNew: () -> Unit = {
         if (vm.recIdx >= 0) {
             vm.say("録音を止めてから、新しいアイデアを始めてください。")

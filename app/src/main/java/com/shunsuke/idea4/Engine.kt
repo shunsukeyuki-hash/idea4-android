@@ -107,7 +107,7 @@ class Engine(ctx: Context) {
                     if (inDev != null) r.setPreferredDevice(inDev)
                 }
 
-                val total = if (record) maxFrames else minOf(maxFrames, Mixer.endFrame(tracks))
+                val total = if (record) maxFrames else 0
                 val buf = ShortArray(chunk * 2)
                 val inb = ShortArray(chunk)
                 val store = if (record) ShortArray(total) else null
@@ -115,9 +115,11 @@ class Engine(ctx: Context) {
 
                 rec?.startRecording()
                 tr.play()
-                while (!s.stop && pos < total) {
+                while (!s.stop) {
+                    val limit = if (record) total else Mixer.totalFrames(tracks)
+                    if (pos >= limit) break
                     tr.setVolume(master)
-                    val n = minOf(chunk, total - pos)
+                    val n = minOf(chunk, limit - pos)
                     Mixer.mix(tracks, pos, buf, n)
                     tr.write(buf, 0, n * 2)
                     val r2 = rec
