@@ -118,6 +118,8 @@ class Engine(ctx: Context) {
                 val inb = ShortArray(chunk)
                 var store: ShortArray? = if (record) ShortArray(minOf(maxOf(0, total - from), SR * 60)) else null
                 var pos = from
+                val outLim = Limiter(OUT_LIMIT)
+                val inLim = Limiter(IN_LIMIT)
 
                 rec?.startRecording()
                 tr.play()
@@ -126,7 +128,7 @@ class Engine(ctx: Context) {
                     if (pos >= limit) break
                     tr.setVolume(master)
                     val n = minOf(chunk, limit - pos)
-                    Mixer.mix(tracks, pos, buf, n)
+                    Mixer.mix(tracks, pos, buf, n, outLim)
                     tr.write(buf, 0, n * 2)
                     val r2 = rec
                     val st0 = store
@@ -137,6 +139,13 @@ class Engine(ctx: Context) {
                             if (got <= 0) break
                             g += got
                         }
+                        // クリップの目安：リミッターをかける前の最大値を測る
+                        var pk = 0
+                        for (q in 0 until g) {
+                            val a = abs(inb[q].toInt())
+                            if (a > pk) pk = a
+                        }
+                        inLim.processMono(inb, g)
                         var st: ShortArray = st0
                         val need = pos - from + g
                         if (need > st.size) {
@@ -145,11 +154,6 @@ class Engine(ctx: Context) {
                             store = st
                         }
                         System.arraycopy(inb, 0, st, pos - from, g)
-                        var pk = 0
-                        for (q in 0 until g) {
-                            val a = abs(inb[q].toInt())
-                            if (a > pk) pk = a
-                        }
                         val lv = pk / 32768f
                         val cb = onLevel
                         if (cb != null) main.post { cb(lv) }

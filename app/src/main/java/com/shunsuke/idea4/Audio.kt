@@ -8,6 +8,9 @@ import kotlin.math.exp
 import kotlin.math.pow
 import kotlin.math.sin
 
+const val OUT_LIMIT = 30000f
+const val IN_LIMIT = 29000f
+
 private fun clip16(v: Float): Short {
     val x = if (v > 32767f) 32767f else if (v < -32768f) -32768f else v
     return x.toInt().toShort()
@@ -189,6 +192,29 @@ fun makePlay(
     return t
 }
 
+/**
+ * リミッター。ピークが threshold を超えそうなとき、瞬時に音量を下げて、ゆっくり戻す。
+ * threshold は 16bit の値（最大 32767）。
+ */
+class Limiter(private val threshold: Float) {
+    private var g = 1f
+    private val relCoef = 1f - exp(-1f / (0.15f * SR))
+
+    fun gainFor(peak: Float): Float {
+        val need = if (peak > threshold) threshold / peak else 1f
+        val up = g + (1f - g) * relCoef
+        g = if (need < up) need else up
+        return g
+    }
+
+    fun processMono(buf: ShortArray, n: Int) {
+        for (i in 0 until n) {
+            val v = buf[i].toFloat()
+            buf[i] = clip16(v * gainFor(abs(v)))
+        }
+    }
+}
+
 object Mixer {
     /** 録音の音そのものが終わる位置。ミュート中のトラックも含める（途中で戻せるように）。 */
     fun endFrame(tracks: List<PlayTrack>): Int {
@@ -210,7 +236,7 @@ object Mixer {
     }
 
     /** out には左右交互（L, R, L, R…）で n フレーム分を書く。 */
-    fun mix(tracks: List<PlayTrack>, start: Int, out: ShortArray, n: Int) {
+    fun mix(tracks: List<PlayTrack>, start: Int, out: ShortArray, n: Int, lim: Limiter? = null) {
         val accL = FloatArray(n)
         val accR = FloatArray(n)
         for (x in tracks) {
@@ -226,8 +252,15 @@ object Mixer {
             x.pr = x.tr
         }
         for (i in 0 until n) {
-            out[2 * i] = clip16(accL[i])
-            out[2 * i + 1] = clip16(accR[i])
+            var l = accL[i]
+            var r = accR[i]
+            if (lim != null) {
+                val g = lim.gainFor(maxOf(abs(l), abs(r)))
+                l *= g
+                r *= g
+            }
+            out[2 * i] = clip16(l)
+            out[2 * i + 1] = clip16(r)
         }
     }
 
@@ -252,11 +285,12 @@ object Mixer {
         h.put("data".toByteArray())
         h.putInt(data)
         val buf = ShortArray(4800 * 2)
+        val lim = Limiter(OUT_LIMIT)
         var pos = 0
         var o = 44
         while (pos < end) {
             val n = minOf(4800, end - pos)
-            mix(tracks, pos, buf, n)
+            mix(tracks, pos, buf, n, lim)
             for (i in 0 until n * 2) {
                 val v = buf[i].toInt()
                 out[o++] = (v and 0xFF).toByte()
@@ -273,10 +307,11 @@ object Mixer {
         if (end <= 0) return null
         val out = ShortArray(end * 2)
         val buf = ShortArray(4800 * 2)
+        val lim = Limiter(OUT_LIMIT)
         var pos = 0
         while (pos < end) {
             val n = minOf(4800, end - pos)
-            mix(tracks, pos, buf, n)
+            mix(tracks, pos, buf, n, lim)
             System.arraycopy(buf, 0, out, pos * 2, n * 2)
             pos += n
         }
