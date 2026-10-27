@@ -10,7 +10,7 @@ import java.util.Locale
 
 const val SR = 48000
 const val N_TRACKS = 8
-const val MAX_SEC = 180
+const val MAX_SEC = 600
 
 data class TrackMeta(
     val has: Boolean,

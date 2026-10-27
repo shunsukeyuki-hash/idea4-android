@@ -231,6 +231,42 @@ object Mixer {
         }
     }
 
+    /** ミックスをそのままWAV（ステレオ）のバイト列で返す。長いときにメモリを節約するため、直接書き込む。 */
+    fun renderWav(tracks: List<PlayTrack>): ByteArray? {
+        val end = totalFrames(tracks)
+        if (end <= 0) return null
+        val data = end * 4
+        val out = ByteArray(44 + data)
+        val h = ByteBuffer.wrap(out).order(ByteOrder.LITTLE_ENDIAN)
+        h.put("RIFF".toByteArray())
+        h.putInt(36 + data)
+        h.put("WAVE".toByteArray())
+        h.put("fmt ".toByteArray())
+        h.putInt(16)
+        h.putShort(1.toShort())
+        h.putShort(2.toShort())
+        h.putInt(SR)
+        h.putInt(SR * 4)
+        h.putShort(4.toShort())
+        h.putShort(16.toShort())
+        h.put("data".toByteArray())
+        h.putInt(data)
+        val buf = ShortArray(4800 * 2)
+        var pos = 0
+        var o = 44
+        while (pos < end) {
+            val n = minOf(4800, end - pos)
+            mix(tracks, pos, buf, n)
+            for (i in 0 until n * 2) {
+                val v = buf[i].toInt()
+                out[o++] = (v and 0xFF).toByte()
+                out[o++] = ((v shr 8) and 0xFF).toByte()
+            }
+            pos += n
+        }
+        return out
+    }
+
     /** 左右交互のステレオで返す（長さは フレーム数×2）。 */
     fun render(tracks: List<PlayTrack>): ShortArray? {
         val end = totalFrames(tracks)

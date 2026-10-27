@@ -181,9 +181,9 @@ class DriveClient(private val token: String, private val progress: (String) -> U
                 ),
             )
         }
-        val mix = Mixer.render(playList)
-        if (mix != null) {
-            ids["mix"] = upsert(base + "_mix.wav", Wav.encode(mix, SR, 2), "audio/wav", ids["mix"])
+        val mixWav = Mixer.renderWav(playList)
+        if (mixWav != null) {
+            ids["mix"] = upsert(base + "_mix.wav", mixWav, "audio/wav", ids["mix"])
         }
         val meta = m.toJson(false).put("app", "idea4").put("files", files)
         ids["meta"] = upsert(base + ".json", meta.toString().toByteArray(), "application/json", ids["meta"])

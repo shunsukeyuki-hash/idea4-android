@@ -116,7 +116,7 @@ class Engine(ctx: Context) {
                 val total = if (record) maxFrames else 0
                 val buf = ShortArray(chunk * 2)
                 val inb = ShortArray(chunk)
-                val store = if (record) ShortArray(maxOf(0, total - from)) else null
+                var store: ShortArray? = if (record) ShortArray(minOf(maxOf(0, total - from), SR * 60)) else null
                 var pos = from
 
                 rec?.startRecording()
@@ -129,14 +129,22 @@ class Engine(ctx: Context) {
                     Mixer.mix(tracks, pos, buf, n)
                     tr.write(buf, 0, n * 2)
                     val r2 = rec
-                    if (r2 != null && store != null) {
+                    val st0 = store
+                    if (r2 != null && st0 != null) {
                         var g = 0
                         while (g < n) {
                             val got = r2.read(inb, g, n - g)
                             if (got <= 0) break
                             g += got
                         }
-                        System.arraycopy(inb, 0, store, pos - from, g)
+                        var st: ShortArray = st0
+                        val need = pos - from + g
+                        if (need > st.size) {
+                            // 録音が伸びたら、必要な分だけ少しずつ広げる（最初から10分ぶんは確保しない）
+                            st = st.copyOf(minOf(maxOf(need, st.size * 2), maxOf(0, total - from)))
+                            store = st
+                        }
+                        System.arraycopy(inb, 0, st, pos - from, g)
                         var pk = 0
                         for (q in 0 until g) {
                             val a = abs(inb[q].toInt())
@@ -152,7 +160,8 @@ class Engine(ctx: Context) {
                         main.post { onProgress(t) }
                     }
                 }
-                if (store != null) captured = store.copyOf(maxOf(0, minOf(pos - from, store.size)))
+                val stEnd = store
+                if (stEnd != null) captured = stEnd.copyOf(maxOf(0, minOf(pos - from, stEnd.size)))
             } catch (e: Exception) {
                 error = "音声を開始できませんでした（" + (e.message ?: "原因不明") + "）。"
             } finally {

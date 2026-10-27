@@ -280,6 +280,8 @@ class AppVm(app: Application) : AndroidViewModel(app) {
             stopRec()
             return
         }
+        // 再生中に録音を押したら、今の位置から録音を始める
+        if (playing && previewId == null) startSec = timeSec
         stopAll()
         val my = token
         val snap = snaps(i)
@@ -292,7 +294,7 @@ class AppVm(app: Application) : AndroidViewModel(app) {
         timeSec = from.toDouble() / SR
         level = 0f
         engine.onLevel = { v -> if (recIdx >= 0) level = maxOf(v, level * 0.85f) }
-        say("録音中（最大3分）。他のトラックを聴きながら録れます。")
+        say("録音中（最大" + (MAX_SEC / 60) + "分）。他のトラックを聴きながら録れます。")
         io {
             val list = snap.map { it.build() }
             main.post {
