@@ -191,8 +191,10 @@ private fun ThinSlider(
     max: Float,
     modifier: Modifier = Modifier,
     fromCenter: Boolean = false,
+    onFinish: (() -> Unit)? = null,
 ) {
     val cur = rememberUpdatedState(onChange)
+    val fin = rememberUpdatedState(onFinish)
     Canvas(
         modifier
             .height(28.dp)
@@ -202,6 +204,7 @@ private fun ThinSlider(
                     val f = ((o.x - pad) / (size.width - 2 * pad)).coerceIn(0f, 1f)
                     val fn = cur.value
                     fn(min + f * (max - min))
+                    fin.value?.invoke()
                 })
             }
             .pointerInput(min, max) {
@@ -218,6 +221,8 @@ private fun ThinSlider(
                         val fn = cur.value
                         fn(min + f * (max - min))
                     },
+                    onDragEnd = { fin.value?.invoke() },
+                    onDragCancel = { fin.value?.invoke() },
                 )
             },
     ) {
@@ -533,6 +538,23 @@ private fun TransportBar(vm: AppVm, requestMic: (() -> Unit) -> Unit) {
         Modifier.fillMaxWidth().background(NavBg).padding(horizontal = 12.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        var drag by remember { mutableStateOf<Float?>(null) }
+        val lenSec = maxOf(vm.lengthSec(), vm.timeSec, 1.0).toFloat()
+        val posSec = drag ?: (if (vm.playing) vm.timeSec.toFloat() else vm.startSec.toFloat())
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(fmt(posSec.toDouble()), color = Fg, fontSize = 13.sp, modifier = Modifier.width(38.dp))
+            ThinSlider(
+                posSec.coerceIn(0f, lenSec),
+                { if (vm.recIdx < 0) drag = it },
+                0f, lenSec, Modifier.weight(1f),
+                onFinish = {
+                    val d = drag
+                    if (d != null) vm.seekTo(d.toDouble())
+                    drag = null
+                },
+            )
+            Text(fmt(lenSec.toDouble()), color = Sub, fontSize = 13.sp, modifier = Modifier.width(38.dp), textAlign = TextAlign.End)
+        }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             val rec = vm.recIdx >= 0
             PillButton(
@@ -552,7 +574,7 @@ private fun TransportBar(vm: AppVm, requestMic: (() -> Unit) -> Unit) {
                 Modifier.weight(1.0f).height(44.dp).clip(RoundedCornerShape(10.dp)).background(CardBg),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(fmt(vm.timeSec), color = Fg, fontSize = 18.sp)
+                Text(fmt(if (vm.playing) vm.timeSec else vm.startSec), color = Fg, fontSize = 18.sp)
             }
         }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {

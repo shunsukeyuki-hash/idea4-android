@@ -41,6 +41,10 @@ class Engine(ctx: Context) {
     @Volatile
     var master: Float = 1f
 
+    /** 次の start() で、この位置（フレーム）から始める。使うと 0 に戻る。 */
+    @Volatile
+    var startAt: Int = 0
+
     @Volatile
     var onLevel: ((Float) -> Unit)? = null
 
@@ -54,6 +58,8 @@ class Engine(ctx: Context) {
         onFinish: (ShortArray?, String?) -> Unit,
     ): Session {
         val s = Session()
+        val from = startAt
+        startAt = 0
         thread(name = "idea-audio") {
             var rec: AudioRecord? = null
             var out: AudioTrack? = null
@@ -110,8 +116,8 @@ class Engine(ctx: Context) {
                 val total = if (record) maxFrames else 0
                 val buf = ShortArray(chunk * 2)
                 val inb = ShortArray(chunk)
-                val store = if (record) ShortArray(total) else null
-                var pos = 0
+                val store = if (record) ShortArray(maxOf(0, total - from)) else null
+                var pos = from
 
                 rec?.startRecording()
                 tr.play()
@@ -130,7 +136,7 @@ class Engine(ctx: Context) {
                             if (got <= 0) break
                             g += got
                         }
-                        System.arraycopy(inb, 0, store, pos, g)
+                        System.arraycopy(inb, 0, store, pos - from, g)
                         var pk = 0
                         for (q in 0 until g) {
                             val a = abs(inb[q].toInt())
@@ -146,7 +152,7 @@ class Engine(ctx: Context) {
                         main.post { onProgress(t) }
                     }
                 }
-                if (store != null) captured = store.copyOf(minOf(pos, store.size))
+                if (store != null) captured = store.copyOf(maxOf(0, minOf(pos - from, store.size)))
             } catch (e: Exception) {
                 error = "音声を開始できませんでした（" + (e.message ?: "原因不明") + "）。"
             } finally {

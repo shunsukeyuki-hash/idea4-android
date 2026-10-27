@@ -64,6 +64,7 @@ class AppVm(app: Application) : AndroidViewModel(app) {
     var recIdx by mutableIntStateOf(-1)
     var level by mutableFloatStateOf(0f)
     var armIdx by mutableIntStateOf(-1)
+    var startSec by mutableDoubleStateOf(0.0)
     var shown by mutableIntStateOf(1)
     var masterVol by mutableFloatStateOf(store.masterVol)
     var playing by mutableStateOf(false)
@@ -139,6 +140,24 @@ class AppVm(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // ---------- シーク ----------
+    /** 全体の長さ（秒）。いちばん長いトラックに合わせる。 */
+    fun lengthSec(): Double {
+        var m = 0
+        for (t in tracks) {
+            val p = t.pcm ?: continue
+            if (p.size > m) m = p.size
+        }
+        return m.toDouble() / SR
+    }
+
+    fun seekTo(sec: Double) {
+        if (recIdx >= 0) return
+        val x = sec.coerceAtLeast(0.0)
+        startSec = x
+        if (playing && previewId == null && session != null) play()
+    }
+
     // ---------- 再生中のリアルタイム操作 ----------
     private var liveList: List<PlayTrack>? = null
 
@@ -198,8 +217,14 @@ class AppVm(app: Application) : AndroidViewModel(app) {
             say("再生できるトラックがありません。")
             return
         }
+        var from = (startSec * SR).toInt()
+        if (from >= end) {
+            from = 0
+            startSec = 0.0
+        }
+        engine.startAt = if (live) from else 0
         playing = true
-        timeSec = 0.0
+        timeSec = if (live) from.toDouble() / SR else 0.0
         liveList = if (live) list else null
         syncLive()
         var me: Session? = null
@@ -261,9 +286,10 @@ class AppVm(app: Application) : AndroidViewModel(app) {
         val shift = latencyMs + extraMs
         val inD = inDev()
         val outD = outDev()
+        val from = (startSec * SR).toInt().coerceIn(0, MAX_SEC * SR - SR)
         recIdx = i
         playing = true
-        timeSec = 0.0
+        timeSec = from.toDouble() / SR
         level = 0f
         engine.onLevel = { v -> if (recIdx >= 0) level = maxOf(v, level * 0.85f) }
         say("録音中（最大3分）。他のトラックを聴きながら録れます。")
@@ -274,6 +300,7 @@ class AppVm(app: Application) : AndroidViewModel(app) {
                 var me: Session? = null
                 liveList = list
                 syncLive()
+                engine.startAt = from
                 me = engine.start(
                     list, true, MAX_SEC * SR, inD, outD,
                     { t -> if (session === me) timeSec = t },
@@ -289,9 +316,20 @@ class AppVm(app: Application) : AndroidViewModel(app) {
                                 say(err)
                             } else if (pcm != null && pcm.size > SR / 5 && idx >= 0) {
                                 val t = tracks[idx]
-                                t.pcm = pcm
-                                t.shiftMs = shift
-                                t.adjMs = 0f
+                                val old = t.pcm
+                                if (old == null) {
+                                    val merged = ShortArray(from + pcm.size)
+                                    System.arraycopy(pcm, 0, merged, from, pcm.size)
+                                    t.pcm = merged
+                                    t.shiftMs = shift
+                                    t.adjMs = 0f
+                                } else {
+                                    // 途中からの録音：その位置から先を、新しい録音で置き換える
+                                    val merged = ShortArray(maxOf(old.size, from + pcm.size))
+                                    System.arraycopy(old, 0, merged, 0, old.size)
+                                    System.arraycopy(pcm, 0, merged, from, pcm.size)
+                                    t.pcm = merged
+                                }
                                 say("トラック" + (idx + 1) + "を録音しました。保存するのを忘れずに。")
                             } else {
                                 say("録音が短すぎたので、保存しませんでした。")
@@ -435,6 +473,7 @@ class AppVm(app: Application) : AndroidViewModel(app) {
             t.name = ""
         }
         current = null
+        startSec = 0.0
         shown = 1
         armIdx = -1
         memo = ""
@@ -477,6 +516,7 @@ class AppVm(app: Application) : AndroidViewModel(app) {
                     if (tm != null && (tm.has || tm.name.isNotBlank())) last = k
                 }
                 shown = last + 1
+                startSec = 0.0
                 armIdx = -1
                 current = m
                 memo = m.memo
