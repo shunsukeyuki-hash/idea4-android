@@ -359,30 +359,44 @@ private fun peaksOf(p: ShortArray?, n: Int): FloatArray {
 }
 
 @Composable
-private fun Waveform(pcm: ShortArray?, color: Color, modifier: Modifier) {
+private fun Waveform(pcm: ShortArray?, pcmR: ShortArray?, color: Color, modifier: Modifier) {
     val peaks = remember(pcm) { peaksOf(pcm, 90) }
+    val peaksR = remember(pcmR) { peaksOf(pcmR, 90) }
+    val stereo = pcmR != null
     Canvas(modifier) {
-        val h = size.height
         val w = size.width
-        if (peaks.isEmpty()) {
-            drawLine(
-                color.copy(alpha = 0.5f), Offset(0f, h / 2f), Offset(w, h / 2f),
-                strokeWidth = 2.dp.toPx(),
-                pathEffect = PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 5.dp.toPx())),
-            )
-        } else {
-            val step = w / peaks.size
-            for (x in peaks.indices) {
-                val px = x * step + step / 2f
-                val p = maxOf(0.06f, peaks[x])
+        val lanes = if (stereo) 2 else 1
+        val laneH = size.height / lanes
+        for (lane in 0 until lanes) {
+            val pk = if (lane == 0) peaks else peaksR
+            val top = lane * laneH
+            val cy = top + laneH / 2f
+            if (pk.isEmpty()) {
                 drawLine(
-                    color,
-                    Offset(px, h / 2f - p * h / 2f),
-                    Offset(px, h / 2f + p * h / 2f),
-                    strokeWidth = maxOf(1.5f, step * 0.5f),
-                    cap = StrokeCap.Round,
+                    color.copy(alpha = 0.5f), Offset(0f, cy), Offset(w, cy),
+                    strokeWidth = 2.dp.toPx(),
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 5.dp.toPx())),
                 )
+            } else {
+                val step = w / pk.size
+                for (x in pk.indices) {
+                    val px = x * step + step / 2f
+                    val p = maxOf(0.06f, pk[x])
+                    drawLine(
+                        color,
+                        Offset(px, cy - p * laneH / 2f),
+                        Offset(px, cy + p * laneH / 2f),
+                        strokeWidth = maxOf(1.5f, step * 0.5f),
+                        cap = StrokeCap.Round,
+                    )
+                }
             }
+        }
+        if (stereo) {
+            drawLine(
+                Sub.copy(alpha = 0.35f), Offset(0f, laneH), Offset(w, laneH),
+                strokeWidth = 1.dp.toPx(),
+            )
         }
     }
 }
@@ -643,9 +657,23 @@ private fun TrackCard(vm: AppVm, i: Int, requestMic: (() -> Unit) -> Unit, pickF
                 modifier = Modifier.weight(1f, fill = false),
             )
             Icon(Icons.Outlined.Edit, contentDescription = "名前を変える", tint = Sub, modifier = Modifier.size(15.dp))
+            if (t.pcmR != null) {
+                Box(
+                    Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(ChipBg)
+                        .border(1.dp, ChipLine, RoundedCornerShape(6.dp))
+                        .padding(horizontal = 6.dp, vertical = 1.dp),
+                ) {
+                    Text("ステレオ L/R", color = Accent, fontSize = 10.sp)
+                }
+            }
         }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Waveform(t.pcm, if (recording) Red else Wave, Modifier.weight(1f).height(36.dp))
+            Waveform(
+                t.pcm, t.pcmR, if (recording) Red else Wave,
+                Modifier.weight(1f).height(if (t.pcmR != null) 56.dp else 36.dp),
+            )
             val armed = vm.armIdx == i
             Box(
                 Modifier
