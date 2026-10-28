@@ -708,7 +708,7 @@ class AppVm(app: Application) : AndroidViewModel(app) {
         store.masterVol = x
     }
 
-    fun setStereoIn(on: Boolean) {
+    fun chooseStereo(on: Boolean) {
         stereoIn = on
         store.stereoIn = on
     }

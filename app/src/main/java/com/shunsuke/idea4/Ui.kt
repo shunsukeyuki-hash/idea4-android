@@ -1167,7 +1167,7 @@ fun SettingsScreen(vm: AppVm, requestMic: (() -> Unit) -> Unit, signIn: () -> Un
             }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("ステレオで録音する", color = Fg, fontSize = 13.sp, modifier = Modifier.weight(1f))
-                Switch(checked = vm.stereoIn, onCheckedChange = { vm.setStereoIn(it) })
+                Switch(checked = vm.stereoIn, onCheckedChange = { vm.chooseStereo(it) })
             }
             Text(
                 if (vm.stereoIn) "左右2チャンネルで録音します。オーディオインターフェースのライン入力などに。入力が2チャンネルに対応していないと、録音を始められません。"
