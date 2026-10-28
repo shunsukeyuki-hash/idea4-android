@@ -45,8 +45,17 @@ class Engine(ctx: Context) {
     @Volatile
     var startAt: Int = 0
 
+    /** 次の start() をステレオ録音にする。使うと false に戻る。 */
     @Volatile
-    var onLevel: ((Float) -> Unit)? = null
+    var stereoIn: Boolean = false
+
+    /** 左右それぞれのピーク（0〜1）。モノラルのときは左右とも同じ値。 */
+    @Volatile
+    var onLevel: ((Float, Float) -> Unit)? = null
+
+    /** ステレオ録音の右チャンネル。onFinish が呼ばれる時点で入っている（モノラルのときは null）。 */
+    @Volatile
+    var capturedR: ShortArray? = null
 
     fun start(
         tracks: List<PlayTrack>,
@@ -60,10 +69,14 @@ class Engine(ctx: Context) {
         val s = Session()
         val from = startAt
         startAt = 0
+        val stereo = record && stereoIn
+        stereoIn = false
+        capturedR = null
         thread(name = "idea-audio") {
             var rec: AudioRecord? = null
             var out: AudioTrack? = null
             var captured: ShortArray? = null
+            var capturedRt: ShortArray? = null
             var error: String? = null
             try {
                 val chunk = 960
@@ -92,8 +105,9 @@ class Engine(ctx: Context) {
                 if (outDev != null) tr.setPreferredDevice(outDev)
 
                 if (record) {
+                    val inMask = if (stereo) AudioFormat.CHANNEL_IN_STEREO else AudioFormat.CHANNEL_IN_MONO
                     val minIn = AudioRecord.getMinBufferSize(
-                        SR, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT,
+                        SR, inMask, AudioFormat.ENCODING_PCM_16BIT,
                     )
                     val r = AudioRecord.Builder()
                         .setAudioSource(MediaRecorder.AudioSource.MIC)
@@ -101,22 +115,27 @@ class Engine(ctx: Context) {
                             AudioFormat.Builder()
                                 .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                                 .setSampleRate(SR)
-                                .setChannelMask(AudioFormat.CHANNEL_IN_MONO)
+                                .setChannelMask(inMask)
                                 .build(),
                         )
-                        .setBufferSizeInBytes(maxOf(minIn, chunk * 2 * 4))
+                        .setBufferSizeInBytes(maxOf(minIn, chunk * 2 * 4 * (if (stereo) 2 else 1)))
                         .build()
                     rec = r
                     if (r.state != AudioRecord.STATE_INITIALIZED) {
-                        throw IllegalStateException("マイクを開けませんでした")
+                        throw IllegalStateException(if (stereo) "ステレオで入力を開けませんでした。設定でモノラルにするか、別の入力を選んでください" else "マイクを開けませんでした")
                     }
                     if (inDev != null) r.setPreferredDevice(inDev)
                 }
 
                 val total = if (record) maxFrames else 0
                 val buf = ShortArray(chunk * 2)
-                val inb = ShortArray(chunk)
-                var store: ShortArray? = if (record) ShortArray(minOf(maxOf(0, total - from), SR * 60)) else null
+                val ch = if (stereo) 2 else 1
+                val inb = ShortArray(chunk * ch)
+                val inL = ShortArray(chunk)
+                val inR = ShortArray(chunk)
+                val firstSize = minOf(maxOf(0, total - from), SR * 60)
+                var store: ShortArray? = if (record) ShortArray(firstSize) else null
+                var storeR: ShortArray? = if (record && stereo) ShortArray(firstSize) else null
                 var pos = from
                 val outLim = Limiter(OUT_LIMIT)
                 val inLim = Limiter(IN_LIMIT)
@@ -133,30 +152,53 @@ class Engine(ctx: Context) {
                     val r2 = rec
                     val st0 = store
                     if (r2 != null && st0 != null) {
+                        val want = n * ch
                         var g = 0
-                        while (g < n) {
-                            val got = r2.read(inb, g, n - g)
+                        while (g < want) {
+                            val got = r2.read(inb, g, want - g)
                             if (got <= 0) break
                             g += got
                         }
-                        // クリップの目安：リミッターをかける前の最大値を測る
-                        var pk = 0
-                        for (q in 0 until g) {
-                            val a = abs(inb[q].toInt())
-                            if (a > pk) pk = a
+                        val frames = g / ch
+                        if (stereo) {
+                            for (q in 0 until frames) {
+                                inL[q] = inb[2 * q]
+                                inR[q] = inb[2 * q + 1]
+                            }
+                        } else {
+                            System.arraycopy(inb, 0, inL, 0, frames)
                         }
-                        inLim.processMono(inb, g)
+                        // クリップの目安：リミッターをかける前の最大値を測る
+                        var pkL = 0
+                        var pkR = 0
+                        for (q in 0 until frames) {
+                            val a = abs(inL[q].toInt())
+                            if (a > pkL) pkL = a
+                            if (stereo) {
+                                val b = abs(inR[q].toInt())
+                                if (b > pkR) pkR = b
+                            }
+                        }
+                        if (stereo) inLim.processStereo(inL, inR, frames) else inLim.processMono(inL, frames)
                         var st: ShortArray = st0
-                        val need = pos - from + g
+                        var stR: ShortArray? = storeR
+                        val need = pos - from + frames
                         if (need > st.size) {
                             // 録音が伸びたら、必要な分だけ少しずつ広げる（最初から10分ぶんは確保しない）
-                            st = st.copyOf(minOf(maxOf(need, st.size * 2), maxOf(0, total - from)))
+                            val ns = minOf(maxOf(need, st.size * 2), maxOf(0, total - from))
+                            st = st.copyOf(ns)
                             store = st
+                            if (stR != null) {
+                                stR = stR.copyOf(ns)
+                                storeR = stR
+                            }
                         }
-                        System.arraycopy(inb, 0, st, pos - from, g)
-                        val lv = pk / 32768f
+                        System.arraycopy(inL, 0, st, pos - from, frames)
+                        if (stR != null) System.arraycopy(inR, 0, stR, pos - from, frames)
+                        val lvL = pkL / 32768f
+                        val lvR = if (stereo) pkR / 32768f else lvL
                         val cb = onLevel
-                        if (cb != null) main.post { cb(lv) }
+                        if (cb != null) main.post { cb(lvL, lvR) }
                     }
                     pos += n
                     if ((pos / chunk) % 5 == 0) {
@@ -166,6 +208,8 @@ class Engine(ctx: Context) {
                 }
                 val stEnd = store
                 if (stEnd != null) captured = stEnd.copyOf(maxOf(0, minOf(pos - from, stEnd.size)))
+                val stEndR = storeR
+                if (stEndR != null) capturedRt = stEndR.copyOf(maxOf(0, minOf(pos - from, stEndR.size)))
             } catch (e: Exception) {
                 error = "音声を開始できませんでした（" + (e.message ?: "原因不明") + "）。"
             } finally {
@@ -192,6 +236,7 @@ class Engine(ctx: Context) {
                 } catch (e: Exception) {
                 }
                 val c = captured
+                capturedR = capturedRt
                 val err = error
                 main.post { onFinish(c, err) }
             }

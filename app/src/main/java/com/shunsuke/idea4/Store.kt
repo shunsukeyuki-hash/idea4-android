@@ -84,6 +84,12 @@ class Store(ctx: Context) {
             prefs.edit().putInt("inDev", v).apply()
         }
 
+    var stereoIn: Boolean
+        get() = prefs.getBoolean("stereoIn", false)
+        set(v) {
+            prefs.edit().putBoolean("stereoIn", v).apply()
+        }
+
     var outDevId: Int
         get() = prefs.getInt("outDev", -1)
         set(v) {

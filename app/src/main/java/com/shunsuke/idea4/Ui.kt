@@ -55,6 +55,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
@@ -596,28 +597,38 @@ private fun TransportBar(vm: AppVm, requestMic: (() -> Unit) -> Unit) {
             ThinSlider(vm.masterVol, { vm.setMaster(it) }, 0f, 1f, Modifier.weight(1f))
             Text((vm.masterVol * 100).toInt().toString() + "%", color = Sub, fontSize = 12.sp, modifier = Modifier.width(40.dp), textAlign = TextAlign.End)
         }
-        LevelMeter(vm.level, vm.recIdx >= 0)
+        LevelMeter(vm.level, vm.recIdx >= 0, if (vm.recIdx >= 0 && vm.recStereo) vm.levelR else null)
     }
 }
 
 @Composable
-private fun LevelMeter(level: Float, active: Boolean) {
+private fun LevelMeter(level: Float, active: Boolean, levelR: Float? = null) {
     val shown = if (active) Math.sqrt(level.toDouble()).toFloat().coerceIn(0f, 1f) else 0f
+    val shownR = if (active && levelR != null) Math.sqrt(levelR.toDouble()).toFloat().coerceIn(0f, 1f) else 0f
+    val hot = shown > 0.92f || shownR > 0.92f
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text("入力", color = Sub, fontSize = 12.sp)
-        Canvas(Modifier.weight(1f).height(10.dp)) {
-            val h = size.height
-            val w = size.width
-            drawRoundRect(Line, size = size, cornerRadius = androidx.compose.ui.geometry.CornerRadius(h / 2f, h / 2f))
-            if (shown > 0.01f) {
-                drawRoundRect(
-                    if (shown > 0.92f) Red else Accent,
-                    size = androidx.compose.ui.geometry.Size(w * shown, h),
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(h / 2f, h / 2f),
-                )
-            }
+        Text(if (levelR != null) "入力 L/R" else "入力", color = Sub, fontSize = 12.sp)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            MeterBar(shown)
+            if (levelR != null) MeterBar(shownR)
         }
-        Text(if (active && shown > 0.92f) "大きすぎ" else if (active) "録音中" else "待機", color = if (active && shown > 0.92f) Red else Sub, fontSize = 12.sp)
+        Text(if (active && hot) "大きすぎ" else if (active) "録音中" else "待機", color = if (active && hot) Red else Sub, fontSize = 12.sp)
+    }
+}
+
+@Composable
+private fun MeterBar(shown: Float) {
+    Canvas(Modifier.fillMaxWidth().height(10.dp)) {
+        val h = size.height
+        val w = size.width
+        drawRoundRect(Line, size = size, cornerRadius = androidx.compose.ui.geometry.CornerRadius(h / 2f, h / 2f))
+        if (shown > 0.01f) {
+            drawRoundRect(
+                if (shown > 0.92f) Red else Accent,
+                size = androidx.compose.ui.geometry.Size(w * shown, h),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(h / 2f, h / 2f),
+            )
+        }
     }
 }
 
@@ -1154,7 +1165,15 @@ fun SettingsScreen(vm: AppVm, requestMic: (() -> Unit) -> Unit, signIn: () -> Un
                     outItems, { vm.chooseOutput(it) }, Modifier.weight(1.3f),
                 )
             }
-            Text("スマートフォンのマイクを使って録音します。", color = Sub, fontSize = 12.sp)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("ステレオで録音する", color = Fg, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                Switch(checked = vm.stereoIn, onCheckedChange = { vm.setStereoIn(it) })
+            }
+            Text(
+                if (vm.stereoIn) "左右2チャンネルで録音します。オーディオインターフェースのライン入力などに。入力が2チャンネルに対応していないと、録音を始められません。"
+                else "モノラルで録音します（スマートフォンのマイクなど）。",
+                color = Sub, fontSize = 12.sp,
+            )
             PillButton(
                 "接続機器を再読み込み", { vm.refreshDevices() }, Modifier.fillMaxWidth(),
                 icon = Icons.Filled.Refresh, height = 44.dp,

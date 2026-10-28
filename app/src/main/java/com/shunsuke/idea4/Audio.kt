@@ -254,6 +254,17 @@ class Limiter(private val threshold: Float) {
             buf[i] = clip16(v * gainFor(abs(v)))
         }
     }
+
+    /** 左右で同じ量だけ下げる（ステレオの定位が崩れないように）。 */
+    fun processStereo(l: ShortArray, r: ShortArray, n: Int) {
+        for (i in 0 until n) {
+            val a = l[i].toFloat()
+            val b = r[i].toFloat()
+            val g = gainFor(maxOf(abs(a), abs(b)))
+            l[i] = clip16(a * g)
+            r[i] = clip16(b * g)
+        }
+    }
 }
 
 object Mixer {

@@ -65,6 +65,9 @@ class AppVm(app: Application) : AndroidViewModel(app) {
     var message by mutableStateOf("")
     var recIdx by mutableIntStateOf(-1)
     var level by mutableFloatStateOf(0f)
+    var levelR by mutableFloatStateOf(0f)
+    var stereoIn by mutableStateOf(store.stereoIn)
+    var recStereo by mutableStateOf(false)
     var armIdx by mutableIntStateOf(-1)
     var startSec by mutableDoubleStateOf(0.0)
     var shown by mutableIntStateOf(1)
@@ -343,7 +346,15 @@ class AppVm(app: Application) : AndroidViewModel(app) {
         playing = true
         timeSec = from.toDouble() / SR
         level = 0f
-        engine.onLevel = { v -> if (recIdx >= 0) level = maxOf(v, level * 0.85f) }
+        levelR = 0f
+        recStereo = stereoIn
+        engine.stereoIn = stereoIn
+        engine.onLevel = { l, r ->
+            if (recIdx >= 0) {
+                level = maxOf(l, level * 0.85f)
+                levelR = maxOf(r, levelR * 0.85f)
+            }
+        }
         say("録音中（最大" + (MAX_SEC / 60) + "分）。他のトラックを聴きながら録れます。")
         io {
             val list = snap.map { it.build() }
@@ -364,6 +375,8 @@ class AppVm(app: Application) : AndroidViewModel(app) {
                             recIdx = -1
                             playing = false
                             level = 0f
+                            levelR = 0f
+                            val newR = engine.capturedR
                             if (err != null) {
                                 say(err)
                             } else if (pcm != null && pcm.size > SR / 5 && idx >= 0) {
@@ -373,7 +386,13 @@ class AppVm(app: Application) : AndroidViewModel(app) {
                                     val merged = ShortArray(from + pcm.size)
                                     System.arraycopy(pcm, 0, merged, from, pcm.size)
                                     t.pcm = merged
-                                    t.pcmR = null
+                                    if (newR != null) {
+                                        val mr = ShortArray(from + newR.size)
+                                        System.arraycopy(newR, 0, mr, from, newR.size)
+                                        t.pcmR = mr
+                                    } else {
+                                        t.pcmR = null
+                                    }
                                     t.shiftMs = shift
                                     t.adjMs = 0f
                                 } else {
@@ -382,11 +401,12 @@ class AppVm(app: Application) : AndroidViewModel(app) {
                                     System.arraycopy(old, 0, merged, 0, old.size)
                                     System.arraycopy(pcm, 0, merged, from, pcm.size)
                                     val oldR = t.pcmR
-                                    if (oldR != null) {
-                                        // ステレオのトラックに録音したときは、その区間を左右とも同じ音で置き換える
+                                    if (oldR != null || newR != null) {
+                                        // 片方がステレオなら、トラックはステレオにする（モノラル側は左右同じ音として扱う）
                                         val mergedR = ShortArray(merged.size)
-                                        System.arraycopy(oldR, 0, mergedR, 0, minOf(oldR.size, mergedR.size))
-                                        System.arraycopy(pcm, 0, mergedR, from, pcm.size)
+                                        val src = oldR ?: old
+                                        System.arraycopy(src, 0, mergedR, 0, minOf(src.size, mergedR.size))
+                                        System.arraycopy(newR ?: pcm, 0, mergedR, from, pcm.size)
                                         t.pcmR = mergedR
                                     }
                                     t.pcm = merged
@@ -686,6 +706,11 @@ class AppVm(app: Application) : AndroidViewModel(app) {
         masterVol = x
         engine.master = x
         store.masterVol = x
+    }
+
+    fun setStereoIn(on: Boolean) {
+        stereoIn = on
+        store.stereoIn = on
     }
 
     fun chooseOutput(id: Int) {
