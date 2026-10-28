@@ -25,6 +25,7 @@ data class TrackMeta(
     val dMs: Double = 250.0,
     val rMix: Double = 0.0,
     val name: String = "",
+    val stereo: Boolean = false,
 )
 
 data class DriveInfo(val ids: Map<String, String>, val at: Long)
@@ -49,7 +50,7 @@ fun whenStr(ts: Long): String =
 fun TrackMeta.toJson(): JSONObject =
     JSONObject().put("has", has).put("sr", sr).put("shift", shift)
         .put("adj", adj).put("vol", vol).put("mute", mute)
-        .put("pan", pan).put("comp", comp).put("dMix", dMix).put("dMs", dMs).put("rMix", rMix).put("name", name)
+        .put("pan", pan).put("comp", comp).put("dMix", dMix).put("dMs", dMs).put("rMix", rMix).put("name", name).put("stereo", stereo)
 
 fun trackFromJson(o: JSONObject?): TrackMeta {
     if (o == null || !o.optBoolean("has", false)) return TrackMeta(false, name = o?.optString("name", "") ?: "")
@@ -66,6 +67,7 @@ fun trackFromJson(o: JSONObject?): TrackMeta {
         o.optDouble("dMs", 250.0),
         o.optDouble("rMix", 0.0),
         o.optString("name", ""),
+        o.optBoolean("stereo", false),
     )
 }
 

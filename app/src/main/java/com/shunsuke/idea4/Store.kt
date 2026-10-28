@@ -38,6 +38,18 @@ class Store(ctx: Context) {
         if (pcm == null) f.delete() else f.writeBytes(pcmToBytes(pcm))
     }
 
+    fun savePcmR(id: String, k: Int, pcm: ShortArray?) {
+        val d = File(root, id)
+        d.mkdirs()
+        val f = File(d, "t$k.r.pcm")
+        if (pcm == null) f.delete() else f.writeBytes(pcmToBytes(pcm))
+    }
+
+    fun loadPcmR(id: String, k: Int): ShortArray? {
+        val f = File(File(root, id), "t$k.r.pcm")
+        return if (f.exists()) pcmFromBytes(f.readBytes()) else null
+    }
+
     fun loadPcm(id: String, k: Int): ShortArray? {
         val f = File(File(root, id), "t$k.pcm")
         return if (f.exists()) pcmFromBytes(f.readBytes()) else null

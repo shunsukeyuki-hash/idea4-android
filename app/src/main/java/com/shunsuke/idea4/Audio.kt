@@ -16,33 +16,8 @@ private fun clip16(v: Float): Short {
     return x.toInt().toShort()
 }
 
-/**
- * 再生・ミックス用の1トラック分。音量・パン・ミュート・エフェクトの値は、
- * 再生中に書き換えるとすぐ音に反映される（エフェクトは1サンプルずつリアルタイムで処理する）。
- * shiftFrames が正なら、録音の頭をその分だけ飛ばす。pan は -1（左）〜1（右）。
- */
-class PlayTrack(
-    val pcm: ShortArray?,
-    vol: Float,
-    val shiftFrames: Int,
-    mute: Boolean,
-    pan: Float = 0f,
-) {
-    @Volatile var vol: Float = vol
-    @Volatile var mute: Boolean = mute
-    @Volatile var pan: Float = pan
-    @Volatile var comp: Float = 0f
-    @Volatile var dMix: Float = 0f
-    @Volatile var dMs: Float = 250f
-    @Volatile var rMix: Float = 0f
-
-    // ---- ミキサーが使う内部の値 ----
-    var pl = 0f
-    var pr = 0f
-    var tl = 0f
-    var tr = 0f
-    private var inited = false
-
+/** 1チャンネル分のエフェクト（コンプレッサー・ディレイ・リバーブ）。状態を持つので、チャンネルごとに1つ使う。 */
+class Fx {
     private var cComp = 0f
     private var cThr = 1f
     private var cExpo = 0f
@@ -74,20 +49,7 @@ class PlayTrack(
     private val ai = IntArray(apLen.size)
     private var rDirty = false
 
-    /** 1チャンクの処理を始める前に、現在の設定を読み込む。 */
-    fun prepare() {
-        val m = mute
-        val v = vol
-        val p0 = pan
-        val p = if (p0 < -1f) -1f else if (p0 > 1f) 1f else p0
-        val a = (p + 1f) / 2f * (Math.PI.toFloat() / 2f)
-        tl = if (m) 0f else v * 0.85f * cos(a)
-        tr = if (m) 0f else v * 0.85f * sin(a)
-        if (!inited) {
-            pl = tl
-            pr = tr
-            inited = true
-        }
+    fun prepare(comp: Float, dMix: Float, dMs: Float, rMix: Float) {
         cComp = comp
         if (cComp > 0.01f) {
             cThr = maxOf(0.05f, 0.5f - 0.4f * cComp)
@@ -110,12 +72,8 @@ class PlayTrack(
         }
     }
 
-    /** 位置 pos のサンプルを、エフェクトを通した値（-1〜1）で返す。 */
-    fun process(pos: Int): Float {
-        val idx = pos + shiftFrames
-        val p = pcm
-        var x = if (p != null && idx >= 0 && idx < p.size) p[idx] / 32768f else 0f
-
+    fun process(x0: Float): Float {
+        var x = x0
         if (cComp > 0.01f) {
             val a = abs(x)
             env = if (a > env) a + atk * (env - a) else a + rel * (env - a)
@@ -125,7 +83,6 @@ class PlayTrack(
             cnt++
             x *= gain * cMakeup
         }
-
         if (cDMix > 0.01f) {
             dDirty = true
             var r = dW - cDFrames
@@ -136,7 +93,6 @@ class PlayTrack(
             if (dW == dBuf.size) dW = 0
             x += cDMix * dv
         }
-
         if (cRMix > 0.01f) {
             rDirty = true
             val inp = x * 0.015f
@@ -163,6 +119,90 @@ class PlayTrack(
         }
         return x
     }
+}
+
+/**
+ * 再生・ミックス用の1トラック分。音量・パン・ミュート・エフェクトの値は、
+ * 再生中に書き換えるとすぐ音に反映される（エフェクトは1サンプルずつリアルタイムで処理する）。
+ * pcmR があればステレオのトラック（パンは左右のバランスとして働く）、なければモノラル。
+ * shiftFrames が正なら、録音の頭をその分だけ飛ばす。pan は -1（左）〜1（右）。
+ */
+class PlayTrack(
+    val pcm: ShortArray?,
+    vol: Float,
+    val shiftFrames: Int,
+    mute: Boolean,
+    pan: Float = 0f,
+    val pcmR: ShortArray? = null,
+) {
+    @Volatile var vol: Float = vol
+    @Volatile var mute: Boolean = mute
+    @Volatile var pan: Float = pan
+    @Volatile var comp: Float = 0f
+    @Volatile var dMix: Float = 0f
+    @Volatile var dMs: Float = 250f
+    @Volatile var rMix: Float = 0f
+
+    // ---- ミキサーが使う内部の値 ----
+    var pl = 0f
+    var pr = 0f
+    var tl = 0f
+    var tr = 0f
+    var outL = 0f
+    var outR = 0f
+    private var inited = false
+
+    private val fxL = Fx()
+    private val fxR: Fx? = if (pcmR != null) Fx() else null
+
+    /** 1チャンクの処理を始める前に、現在の設定を読み込む。 */
+    fun prepare() {
+        val m = mute
+        val v = vol
+        val p0 = pan
+        val p = if (p0 < -1f) -1f else if (p0 > 1f) 1f else p0
+        if (pcmR != null) {
+            // ステレオ：パンは左右のバランス
+            val half = (Math.PI.toFloat() / 2f)
+            val gl = if (p > 0f) cos(p * half) else 1f
+            val gr = if (p < 0f) cos(-p * half) else 1f
+            tl = if (m) 0f else v * 0.75f * gl
+            tr = if (m) 0f else v * 0.75f * gr
+        } else {
+            val a = (p + 1f) / 2f * (Math.PI.toFloat() / 2f)
+            tl = if (m) 0f else v * 0.85f * cos(a)
+            tr = if (m) 0f else v * 0.85f * sin(a)
+        }
+        if (!inited) {
+            pl = tl
+            pr = tr
+            inited = true
+        }
+        val c = comp
+        val d = dMix
+        val ms = dMs
+        val r = rMix
+        fxL.prepare(c, d, ms, r)
+        fxR?.prepare(c, d, ms, r)
+    }
+
+    /** 位置 pos のサンプルを、エフェクトを通した値（-1〜1）で outL / outR に入れる。 */
+    fun process(pos: Int) {
+        val idx = pos + shiftFrames
+        val p = pcm
+        val l = if (p != null && idx >= 0 && idx < p.size) p[idx] / 32768f else 0f
+        val fr = fxR
+        if (fr != null) {
+            val q = pcmR
+            val r = if (q != null && idx >= 0 && idx < q.size) q[idx] / 32768f else 0f
+            outL = fxL.process(l)
+            outR = fr.process(r)
+        } else {
+            val y = fxL.process(l)
+            outL = y
+            outR = y
+        }
+    }
 
     /** 音の終わりのあとに、余韻として鳴らし続ける長さ（フレーム）。 */
     fun tailFrames(): Int {
@@ -183,8 +223,9 @@ fun makePlay(
     dMix: Float,
     dMs: Float,
     rMix: Float = 0f,
+    pcmR: ShortArray? = null,
 ): PlayTrack {
-    val t = PlayTrack(pcm, vol, (shiftMs * SR / 1000f).toInt(), mute, pan)
+    val t = PlayTrack(pcm, vol, (shiftMs * SR / 1000f).toInt(), mute, pan, pcmR)
     t.comp = comp
     t.dMix = dMix
     t.dMs = dMs
@@ -244,9 +285,9 @@ object Mixer {
             x.prepare()
             for (i in 0 until n) {
                 val f = (i + 1) / n.toFloat()
-                val s = x.process(start + i) * 32768f
-                accL[i] += s * (x.pl + (x.tl - x.pl) * f)
-                accR[i] += s * (x.pr + (x.tr - x.pr) * f)
+                x.process(start + i)
+                accL[i] += x.outL * 32768f * (x.pl + (x.tl - x.pl) * f)
+                accR[i] += x.outR * 32768f * (x.pr + (x.tr - x.pr) * f)
             }
             x.pl = x.tl
             x.pr = x.tr
@@ -340,6 +381,10 @@ object Wav {
         return b.array()
     }
 
+    /** WAV のチャンネル数（1 か 2）を返す。 */
+    fun channels(bytes: ByteArray): Int =
+        if (bytes.size > 24) ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).getShort(22).toInt() else 1
+
     /** トラックのWAV（モノラル）を読む。 */
     fun decode(bytes: ByteArray): Pair<Int, ShortArray> {
         val b = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
@@ -377,4 +422,27 @@ fun resample(p: ShortArray, from: Int, to: Int): ShortArray {
         o[i] = (p[i0] * (1 - f) + p[i1] * f).toInt().toShort()
     }
     return o
+}
+
+/** 左右のデータを交互に並べる（L, R, L, R…）。 */
+fun interleave(l: ShortArray, r: ShortArray): ShortArray {
+    val n = minOf(l.size, r.size)
+    val o = ShortArray(n * 2)
+    for (i in 0 until n) {
+        o[2 * i] = l[i]
+        o[2 * i + 1] = r[i]
+    }
+    return o
+}
+
+/** 交互に並んだステレオを、左右に分ける。 */
+fun splitStereo(x: ShortArray): Pair<ShortArray, ShortArray> {
+    val n = x.size / 2
+    val l = ShortArray(n)
+    val r = ShortArray(n)
+    for (i in 0 until n) {
+        l[i] = x[2 * i]
+        r[i] = x[2 * i + 1]
+    }
+    return Pair(l, r)
 }

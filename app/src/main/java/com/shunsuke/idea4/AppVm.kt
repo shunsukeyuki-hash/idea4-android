@@ -19,6 +19,7 @@ val BASE_TAGS = listOf("ギター", "鼻歌", "リズム", "歌詞", "ひらめ�
 
 class TrackState {
     var pcm by mutableStateOf<ShortArray?>(null)
+    var pcmR by mutableStateOf<ShortArray?>(null)
     var vol by mutableFloatStateOf(0.9f)
     var shiftMs by mutableFloatStateOf(0f)
     var adjMs by mutableFloatStateOf(0f)
@@ -43,8 +44,9 @@ private class Snap(
     val dMix: Float,
     val dMs: Float,
     val rMix: Float,
+    val pcmR: ShortArray?,
 ) {
-    fun build(): PlayTrack = makePlay(pcm, vol, shiftMs, mute, pan, comp, dMix, dMs, rMix)
+    fun build(): PlayTrack = makePlay(pcm, vol, shiftMs, mute, pan, comp, dMix, dMs, rMix, pcmR)
 }
 
 class AppVm(app: Application) : AndroidViewModel(app) {
@@ -136,6 +138,7 @@ class AppVm(app: Application) : AndroidViewModel(app) {
             Snap(
                 if (k == skip) null else t.pcm,
                 t.vol, t.shiftMs + t.adjMs, t.mute || (anySolo && !t.solo), t.pan, t.comp, t.dMix, t.dMs, t.rMix,
+                if (k == skip) null else t.pcmR,
             )
         }
     }
@@ -186,6 +189,53 @@ class AppVm(app: Application) : AndroidViewModel(app) {
                 it.comp, it.dMix, it.dMs, it.rMix,
             )
         }
+
+    /** 外部の音声ファイル（wav / aac / mp3 など）を、トラックに読み込む。ステレオはそのまま扱う。 */
+    fun importFile(uri: android.net.Uri, i: Int) {
+        if (recIdx >= 0) {
+            say("録音を止めてから読み込んでください。")
+            return
+        }
+        stopAll()
+        say("読み込み中…")
+        val from = (startSec * SR).toInt().coerceIn(0, MAX_SEC * SR - SR)
+        io {
+            val r = Importer.read(appCtx, uri, MAX_SEC)
+            if (r.data.isEmpty()) throw IllegalStateException("音が読み込めませんでした")
+            val name = Importer.displayName(appCtx, uri)
+            val maxLen = MAX_SEC * SR - from
+            var left: ShortArray
+            var right: ShortArray? = null
+            if (r.ch == 2) {
+                val sp = splitStereo(r.data)
+                left = resample(sp.first, r.sr, SR)
+                right = resample(sp.second, r.sr, SR)
+            } else {
+                left = resample(r.data, r.sr, SR)
+            }
+            if (left.size > maxLen) left = left.copyOf(maxLen)
+            val len = from + left.size
+            val outL = ShortArray(len)
+            System.arraycopy(left, 0, outL, from, left.size)
+            val outR: ShortArray? = if (right != null) {
+                val rr = ShortArray(len)
+                System.arraycopy(right, 0, rr, from, minOf(right.size, left.size))
+                rr
+            } else {
+                null
+            }
+            main.post {
+                val t = tracks[i]
+                t.pcm = outL
+                t.pcmR = outR
+                t.shiftMs = 0f
+                t.adjMs = 0f
+                if (t.name.isBlank() && name.isNotBlank()) t.name = name.take(16)
+                if (i + 1 > shown) shown = i + 1
+                say("読み込みました（" + (if (outR != null) "ステレオ" else "モノラル") + "）。保存するのを忘れずに。")
+            }
+        }
+    }
 
     fun addTrack() {
         if (shown < N_TRACKS) shown++
@@ -323,6 +373,7 @@ class AppVm(app: Application) : AndroidViewModel(app) {
                                     val merged = ShortArray(from + pcm.size)
                                     System.arraycopy(pcm, 0, merged, from, pcm.size)
                                     t.pcm = merged
+                                    t.pcmR = null
                                     t.shiftMs = shift
                                     t.adjMs = 0f
                                 } else {
@@ -330,6 +381,14 @@ class AppVm(app: Application) : AndroidViewModel(app) {
                                     val merged = ShortArray(maxOf(old.size, from + pcm.size))
                                     System.arraycopy(old, 0, merged, 0, old.size)
                                     System.arraycopy(pcm, 0, merged, from, pcm.size)
+                                    val oldR = t.pcmR
+                                    if (oldR != null) {
+                                        // ステレオのトラックに録音したときは、その区間を左右とも同じ音で置き換える
+                                        val mergedR = ShortArray(merged.size)
+                                        System.arraycopy(oldR, 0, mergedR, 0, minOf(oldR.size, mergedR.size))
+                                        System.arraycopy(pcm, 0, mergedR, from, pcm.size)
+                                        t.pcmR = mergedR
+                                    }
                                     t.pcm = merged
                                 }
                                 say("トラック" + (idx + 1) + "を録音しました。保存するのを忘れずに。")
@@ -434,7 +493,7 @@ class AppVm(app: Application) : AndroidViewModel(app) {
             if (t.pcm != null) {
                 TrackMeta(
                     true, SR, t.shiftMs.toDouble(), t.adjMs.toDouble(), t.vol.toDouble(), t.mute,
-                    t.pan.toDouble(), t.comp.toDouble(), t.dMix.toDouble(), t.dMs.toDouble(), t.rMix.toDouble(), t.name,
+                    t.pan.toDouble(), t.comp.toDouble(), t.dMix.toDouble(), t.dMs.toDouble(), t.rMix.toDouble(), t.name, t.pcmR != null,
                 )
             } else {
                 TrackMeta(false, name = t.name)
@@ -445,9 +504,13 @@ class AppVm(app: Application) : AndroidViewModel(app) {
             memo.trim(), selTags.toList(), metas, base?.drive,
         )
         val pcms = tracks.map { it.pcm }
+        val pcmsR = tracks.map { it.pcmR }
         say("保存中…")
         io {
-            for (k in 0 until N_TRACKS) store.savePcm(id, k, pcms[k])
+            for (k in 0 until N_TRACKS) {
+                store.savePcm(id, k, pcms[k])
+                store.savePcmR(id, k, pcmsR[k])
+            }
             store.saveMeta(idea)
             main.post {
                 current = idea
@@ -463,6 +526,7 @@ class AppVm(app: Application) : AndroidViewModel(app) {
         for (t in tracks) {
             t.solo = false
             t.pcm = null
+            t.pcmR = null
             t.vol = 0.9f
             t.shiftMs = 0f
             t.adjMs = 0f
@@ -496,11 +560,16 @@ class AppVm(app: Application) : AndroidViewModel(app) {
                 val tm = m.tracks.getOrNull(k)
                 if (tm != null && tm.has) store.loadPcm(id, k) else null
             }
+            val pcmsR = (0 until N_TRACKS).map { k ->
+                val tm = m.tracks.getOrNull(k)
+                if (tm != null && tm.has && tm.stereo) store.loadPcmR(id, k) else null
+            }
             main.post {
                 for (k in 0 until N_TRACKS) {
                     val tm = m.tracks.getOrNull(k)
                     val t = tracks[k]
                     t.pcm = pcms[k]
+                    t.pcmR = pcmsR[k]
                     t.vol = (tm?.vol ?: 0.9).toFloat()
                     t.shiftMs = (tm?.shift ?: 0.0).toFloat()
                     t.adjMs = (tm?.adj ?: 0.0).toFloat()
@@ -568,6 +637,7 @@ class AppVm(app: Application) : AndroidViewModel(app) {
                     (tm?.dMix ?: 0.0).toFloat(),
                     (tm?.dMs ?: 250.0).toFloat(),
                     (tm?.rMix ?: 0.0).toFloat(),
+                    if (has && tm != null && tm.stereo) store.loadPcmR(id, k) else null,
                 )
             }
             main.post {

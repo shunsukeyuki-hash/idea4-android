@@ -16,6 +16,14 @@ import com.google.android.gms.common.api.Scope
 class MainActivity : ComponentActivity() {
     private val vm: AppVm by viewModels()
     private var afterMic: (() -> Unit)? = null
+    private var importTrack = -1
+
+    private val filePicker =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            val i = importTrack
+            importTrack = -1
+            if (uri != null && i >= 0) vm.importFile(uri, i)
+        }
 
     private val micLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
@@ -79,7 +87,15 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             IdeaTheme {
-                IdeaApp(vm, { action -> requestMic(action) }, { driveSignIn() })
+                IdeaApp(
+                    vm,
+                    { action -> requestMic(action) },
+                    { driveSignIn() },
+                    { i ->
+                        importTrack = i
+                        filePicker.launch(arrayOf("audio/*", "application/ogg"))
+                    },
+                )
             }
         }
     }

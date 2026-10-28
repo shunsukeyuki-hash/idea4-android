@@ -135,12 +135,22 @@ class DriveClient(private val token: String, private val progress: (String) -> U
             if (!tm.has || fid.isEmpty()) {
                 tracks.add(TrackMeta(false))
                 store.savePcm(id, k, null)
+                store.savePcmR(id, k, null)
                 continue
             }
-            val w = Wav.decode(download(fid))
-            store.savePcm(id, k, resample(w.second, w.first, SR))
+            val bytes = download(fid)
+            val chans = Wav.channels(bytes)
+            val w = Wav.decode(bytes)
+            if (chans == 2 && tm.stereo) {
+                val sp = splitStereo(w.second)
+                store.savePcm(id, k, resample(sp.first, w.first, SR))
+                store.savePcmR(id, k, resample(sp.second, w.first, SR))
+            } else {
+                store.savePcm(id, k, resample(w.second, w.first, SR))
+                store.savePcmR(id, k, null)
+            }
             ids["t$k"] = fid
-            tracks.add(tm.copy(sr = SR))
+            tracks.add(tm.copy(sr = SR, stereo = chans == 2 && tm.stereo))
         }
         val tagsJ = meta.optJSONArray("tags")
         val tags = ArrayList<String>()
@@ -171,13 +181,15 @@ class DriveClient(private val token: String, private val progress: (String) -> U
             val tm = m.tracks.getOrNull(k)
             if (tm == null || !tm.has) continue
             val pcm = store.loadPcm(m.id, k) ?: continue
-            val fid = upsert(base + "_t" + (k + 1) + ".wav", Wav.encode(pcm, SR), "audio/wav", ids["t$k"])
+            val pcmR = if (tm.stereo) store.loadPcmR(m.id, k) else null
+            val wavBytes = if (pcmR != null) Wav.encode(interleave(pcm, pcmR), SR, 2) else Wav.encode(pcm, SR)
+            val fid = upsert(base + "_t" + (k + 1) + ".wav", wavBytes, "audio/wav", ids["t$k"])
             ids["t$k"] = fid
             files.put("t$k", fid)
             playList.add(
                 makePlay(
                     pcm, tm.vol.toFloat(), (tm.shift + tm.adj).toFloat(), tm.mute,
-                    tm.pan.toFloat(), tm.comp.toFloat(), tm.dMix.toFloat(), tm.dMs.toFloat(), tm.rMix.toFloat(),
+                    tm.pan.toFloat(), tm.comp.toFloat(), tm.dMix.toFloat(), tm.dMs.toFloat(), tm.rMix.toFloat(), pcmR,
                 ),
             )
         }
