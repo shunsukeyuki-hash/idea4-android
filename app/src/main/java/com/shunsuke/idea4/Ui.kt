@@ -411,7 +411,7 @@ private fun ConfirmDialog(
 // ---------------- 全体 ----------------
 
 @Composable
-fun IdeaApp(vm: AppVm, requestMic: (() -> Unit) -> Unit, signIn: () -> Unit) {
+fun IdeaApp(vm: AppVm, requestMic: (() -> Unit) -> Unit, signIn: () -> Unit, pickFile: (Int) -> Unit) {
     val names = listOf("録音", "カレンダー", "一覧", "設定")
     val icons = listOf(Icons.Filled.Mic, Icons.Filled.CalendarMonth, Icons.Filled.ListIcon, Icons.Filled.Settings)
     var confirmNew by remember { mutableStateOf(false) }
@@ -480,7 +480,7 @@ fun IdeaApp(vm: AppVm, requestMic: (() -> Unit) -> Unit, signIn: () -> Unit) {
     ) { pad ->
         Box(Modifier.padding(pad).fillMaxSize().background(Bg)) {
             when (vm.tab) {
-                0 -> RecordScreen(vm, requestMic)
+                0 -> RecordScreen(vm, requestMic, pickFile)
                 1 -> CalendarScreen(vm)
                 2 -> ListScreen(vm)
                 else -> SettingsScreen(vm, requestMic, signIn)
@@ -503,7 +503,7 @@ fun IdeaApp(vm: AppVm, requestMic: (() -> Unit) -> Unit, signIn: () -> Unit) {
 // ---------------- 録音画面 ----------------
 
 @Composable
-fun RecordScreen(vm: AppVm, requestMic: (() -> Unit) -> Unit) {
+fun RecordScreen(vm: AppVm, requestMic: (() -> Unit) -> Unit, pickFile: (Int) -> Unit) {
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -521,7 +521,7 @@ fun RecordScreen(vm: AppVm, requestMic: (() -> Unit) -> Unit) {
             val st = vm.streak()
             if (st > 0) Text("連続 " + st + " 日", color = Sub, fontSize = 13.sp)
         }
-        for (i in 0 until vm.shown) TrackCard(vm, i, requestMic)
+        for (i in 0 until vm.shown) TrackCard(vm, i, requestMic, pickFile)
         if (vm.shown < N_TRACKS) {
             PillButton(
                 "トラックを追加", { vm.addTrack() }, Modifier.fillMaxWidth(),
@@ -608,11 +608,12 @@ private fun LevelMeter(level: Float, active: Boolean) {
 }
 
 @Composable
-private fun TrackCard(vm: AppVm, i: Int, requestMic: (() -> Unit) -> Unit) {
+private fun TrackCard(vm: AppVm, i: Int, requestMic: (() -> Unit) -> Unit, pickFile: (Int) -> Unit) {
     val t = vm.tracks[i]
     val recording = vm.recIdx == i
     var open by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
+    var confirmImport by remember { mutableStateOf(false) }
     var editName by remember { mutableStateOf(false) }
     var nameDraft by remember { mutableStateOf("") }
     val panText = if (t.pan < -0.04f) "左 " + (-t.pan * 100).toInt() else if (t.pan > 0.04f) "右 " + (t.pan * 100).toInt() else "中央"
@@ -729,6 +730,13 @@ private fun TrackCard(vm: AppVm, i: Int, requestMic: (() -> Unit) -> Unit) {
                 color = Sub, fontSize = 11.sp,
             )
             PillButton(
+                "音声ファイルを読み込む（wav / aac / mp3）",
+                { if (t.pcm != null) confirmImport = true else pickFile(i) },
+                Modifier.fillMaxWidth(),
+                height = 36.dp, fontSize = 13.sp,
+                enabled = !recording,
+            )
+            PillButton(
                 "このトラックを消去", { confirmClear = true }, Modifier.fillMaxWidth(),
                 icon = Icons.Outlined.Delete, color = Red, borderColor = Red,
                 height = 36.dp, fontSize = 13.sp,
@@ -753,11 +761,22 @@ private fun TrackCard(vm: AppVm, i: Int, requestMic: (() -> Unit) -> Unit) {
             dismissButton = { TextButton(onClick = { editName = false }) { Text("やめる", color = Sub) } },
         )
     }
+    if (confirmImport) {
+        ConfirmDialog(
+            "ファイルを読み込みますか？", "トラック" + (i + 1) + "の今の録音は、読み込んだ音に置き換わります。", "選ぶ", "やめる",
+            onYes = {
+                confirmImport = false
+                pickFile(i)
+            },
+            onNo = { confirmImport = false },
+        )
+    }
     if (confirmClear) {
         ConfirmDialog(
             "トラック" + (i + 1) + "を消去しますか？", null, "消去", "やめる",
             onYes = {
                 t.pcm = null
+                t.pcmR = null
                 t.adjMs = 0f
                 t.shiftMs = 0f
                 confirmClear = false
